@@ -24,8 +24,8 @@ export class MemoryCache implements CachePort {
     const v = this.store.get(`fx:usdtable:${date}`);
     return v ? fromWire(JSON.parse(v) as Wire) : null;
   }
-  async setUsdTable(date: string, entry: CacheEntry) {
-    this.store.set(`fx:usdtable:${date}`, JSON.stringify(toWire(entry)));
+  async setUsdTable(date: string, entry: CacheEntry, _ttlSeconds?: number) {
+    this.store.set(`fx:usdtable:${date}`, JSON.stringify(toWire(entry))); // 메모리 fake — ttl 무시(CachePort 시그니처 일치)
   }
   async getLastKnown() {
     const v = this.store.get("fx:lastknown:usdtable");
