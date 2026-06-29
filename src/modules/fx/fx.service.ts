@@ -13,7 +13,7 @@ import type {
 
 const DEFAULT_MAX_AGE_DAYS = 7;
 
-interface Deps {
+export interface FxDeps {
   providers: FxProvider[];
   cache: CachePort;
   tripDefaults: TripDefaultsPort;
@@ -61,7 +61,7 @@ const safeRate = (table: UsdTable, input: FxInput): Decimal | null => {
 // 캐시는 최적화지 진실원이 아님 → best-effort (finding #1 pass1). 실패는 onWarn 신호 + fail-open (finding #3 pass4)
 const safeRead = async <T>(
   fn: () => Promise<T>,
-  onWarn: Deps["onWarn"],
+  onWarn: FxDeps["onWarn"],
   event: string,
 ): Promise<T | null> => {
   try {
@@ -73,7 +73,7 @@ const safeRead = async <T>(
 };
 const safeWrite = async (
   fn: () => Promise<void>,
-  onWarn: Deps["onWarn"],
+  onWarn: FxDeps["onWarn"],
   event: string,
 ): Promise<void> => {
   try {
@@ -83,7 +83,7 @@ const safeWrite = async (
   }
 };
 
-export async function resolveFx(input: FxInput, deps: Deps): Promise<FxResult> {
+export async function resolveFx(input: FxInput, deps: FxDeps): Promise<FxResult> {
   const maxAge = deps.maxAgeDays ?? DEFAULT_MAX_AGE_DAYS;
   const nowIso = (deps.now ?? (() => new Date()))().toISOString();
   const { onWarn } = deps;
