@@ -11,7 +11,7 @@ import {
   primaryKey,
   text,
   timestamp,
-  uniqueIndex,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -85,7 +85,7 @@ export const expenses = pgTable(
     index("ix_exp_settle")
       .on(t.trip_id)
       .where(sql`expense_settlement_state='included' AND deleted_at IS NULL`),
-    uniqueIndex("uq_expense_trip_id").on(t.trip_id, t.id), // composite FK 타깃
+    unique("uq_expense_trip_id").on(t.trip_id, t.id), // composite FK 타깃(제약=FK 앞 생성)
     foreignKey({
       columns: [t.trip_id, t.paid_by_member_id],
       foreignColumns: [tripMembers.trip_id, tripMembers.id],

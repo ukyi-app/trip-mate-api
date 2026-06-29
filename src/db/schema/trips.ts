@@ -1,4 +1,4 @@
-import { check, date, index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { check, date, index, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared.ts";
 import { currencies } from "./currencies.ts";
@@ -29,7 +29,7 @@ export const trips = pgTable(
   },
   (t) => [
     check("trip_dates", sql`${t.start_date} <= ${t.end_date}`),
-    uniqueIndex("uq_trip_settlement_ccy").on(t.id, t.settlement_currency), // expense composite FK 타깃
+    unique("uq_trip_settlement_ccy").on(t.id, t.settlement_currency), // expense composite FK 타깃(제약=FK 앞 생성)
     index("ix_trip_creator").on(t.created_by_user_id),
   ],
 );

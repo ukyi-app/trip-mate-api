@@ -1,2 +1,8 @@
-// Task 10에서 전체 스키마 re-export로 교체. (scaffold 단계 임시 — client.ts 타입 통과용)
-export {};
+export * from "./enums.ts";
+export * from "./currencies.ts";
+export * from "./auth-schema.ts";
+export * from "./trips.ts";
+export * from "./members.ts";
+export * from "./expenses.ts";
+export * from "./settlements.ts";
+export * from "./relations.ts";

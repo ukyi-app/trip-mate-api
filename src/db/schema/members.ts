@@ -1,4 +1,4 @@
-import { index, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { index, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared.ts";
 import { trips } from "./trips.ts";
@@ -29,7 +29,7 @@ export const tripMembers = pgTable(
     uniqueIndex("uq_one_admin")
       .on(t.trip_id)
       .where(sql`role = 'admin' AND status = 'joined'`), // active 어드민 ≤1
-    uniqueIndex("uq_member_trip_id").on(t.trip_id, t.id), // composite FK 타깃
+    unique("uq_member_trip_id").on(t.trip_id, t.id), // composite FK 타깃(제약=FK 앞 생성)
     uniqueIndex("uq_invite_token")
       .on(t.invite_token_hash)
       .where(sql`invite_token_hash IS NOT NULL`), // 한 해시=정확히 1 pending

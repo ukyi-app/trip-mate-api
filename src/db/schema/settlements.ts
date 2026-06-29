@@ -8,6 +8,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -37,7 +38,7 @@ export const settlements = pgTable(
       .on(t.trip_id)
       .where(sql`status = 'active'`), // trip당 active ≤1
     uniqueIndex("uq_settlement_version").on(t.trip_id, t.version),
-    uniqueIndex("uq_settlement_trip_id").on(t.trip_id, t.id), // 자식 composite FK 타깃
+    unique("uq_settlement_trip_id").on(t.trip_id, t.id), // 자식 composite FK 타깃(제약=FK 앞 생성)
     foreignKey({
       columns: [t.trip_id, t.finalized_by_member_id],
       foreignColumns: [tripMembers.trip_id, tripMembers.id],
