@@ -24,9 +24,11 @@ function v1For(userId: string) {
   return buildV1App({
     tripsService: trips,
     membersService: members,
+    expensesService: {} as never, // 본 테스트는 trips mutation만 검증 → expenses 핸들러 미실행
     resolver,
     emailOf: async () => "a@example.com",
     memberLookup: (t, u) => new DrizzleMemberRepo(ctx.db).findMembership(t, u),
+    idempotencyStore: null,
     webOrigins: [ORIGIN],
   });
 }
@@ -77,5 +79,19 @@ describe("buildV1App 보안 체인(CSRF·CORS, finding #2 pass4)", () => {
       headers: { origin: ORIGIN, "access-control-request-method": "POST" },
     });
     expect(res.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+  });
+  it("OPTIONS preflight가 Idempotency-Key 헤더 허용(finding #5 pass1)", async () => {
+    const u = await mkUser(ctx.sql);
+    const res = await v1For(u).request("/v1/trips/00000000-0000-4000-8000-000000000000/expenses", {
+      method: "OPTIONS",
+      headers: {
+        origin: ORIGIN,
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "idempotency-key",
+      },
+    });
+    expect((res.headers.get("access-control-allow-headers") ?? "").toLowerCase()).toContain(
+      "idempotency-key",
+    );
   });
 });

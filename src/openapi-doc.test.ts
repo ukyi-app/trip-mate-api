@@ -6,9 +6,11 @@ function docApp() {
   return buildV1App({
     tripsService: {} as never,
     membersService: {} as never,
+    expensesService: {} as never,
     resolver: async () => null,
     emailOf: async () => "",
     memberLookup: async () => null,
+    idempotencyStore: null,
     webOrigins: ["http://localhost:5173"],
   });
 }

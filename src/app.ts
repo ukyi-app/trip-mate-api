@@ -5,16 +5,21 @@ import { csrf } from "./core/csrf.ts";
 import { registerErrorFilter } from "./core/errors.ts";
 import { registerTripRoutes } from "./modules/trips/trips.controller.ts";
 import { registerMemberRoutes } from "./modules/members/members.controller.ts";
+import { registerExpenseRoutes } from "./modules/expenses/expenses.controller.ts";
 import type { TripsService } from "./modules/trips/trips.service.ts";
 import type { MembersService } from "./modules/members/members.service.ts";
+import type { ExpensesService } from "./modules/expenses/expenses.service.ts";
+import type { IdempotencyStore } from "./core/idempotency.ts";
 import type { SessionResolver, MembershipLookup } from "./core/guards.ts";
 
 export interface V1Deps {
   tripsService: TripsService<Record<string, unknown>>;
   membersService: MembersService;
+  expensesService: ExpensesService<Record<string, unknown>>;
   resolver: SessionResolver;
   emailOf: (userId: string) => Promise<string>;
   memberLookup: MembershipLookup;
+  idempotencyStore: IdempotencyStore | null;
   webOrigins: string[];
 }
 
@@ -30,7 +35,7 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
       origin: deps.webOrigins,
       credentials: true,
       allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-      allowHeaders: ["Content-Type"],
+      allowHeaders: ["Content-Type", "Idempotency-Key"], // Idempotency-Key preflight 허용(finding #5 pass1)
     }),
   );
   v1.use("*", csrf(deps.webOrigins)); // 안전 메서드 bypass·정확 Origin
@@ -45,6 +50,12 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
     resolver: deps.resolver,
     emailOf: deps.emailOf,
     memberLookup: deps.memberLookup,
+  });
+  registerExpenseRoutes(v1, {
+    expensesService: deps.expensesService,
+    resolver: deps.resolver,
+    memberLookup: deps.memberLookup,
+    idempotencyStore: deps.idempotencyStore,
   });
   return v1;
 }

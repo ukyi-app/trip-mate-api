@@ -12,15 +12,22 @@ import { DrizzleTripRepo } from "./modules/trips/trips.repo.ts";
 import { DrizzleMemberRepo } from "./modules/members/members.repo.ts";
 import { TripsService } from "./modules/trips/trips.service.ts";
 import { MembersService } from "./modules/members/members.service.ts";
+import { DrizzleExpenseRepo } from "./modules/expenses/expenses.repo.ts";
+import { ExpensesService } from "./modules/expenses/expenses.service.ts";
+import { RedisCache } from "./modules/fx/cache/cache.redis.ts";
+import { DrizzleTripDefaults } from "./modules/fx/trip-defaults.repo.ts";
+import { OxrProvider } from "./modules/fx/provider/oxr.ts";
+import { CurrencyApiProvider } from "./modules/fx/provider/currencyapi.ts";
 import { buildV1App } from "./app.ts";
 
 const core = createCore();
 const app = createApp();
+const redis = new IoRedis(core.config.VALKEY_URL); // auth secondaryStorage·FX 캐시·Idempotency 공용
 
 // auth 싱글톤은 컴포지션 루트에서 구성: db·redis·시크릿·origin 주입.
 const auth = createAuth({
   db: core.db,
-  redis: new IoRedis(core.config.VALKEY_URL),
+  redis,
   secret: core.config.BETTER_AUTH_SECRET,
   baseURL: core.config.BETTER_AUTH_URL,
   trustedOrigins: core.config.WEB_ORIGINS,
@@ -57,12 +64,25 @@ const emailOf = async (userId: string): Promise<string> => {
   const rows = await core.db.select({ email: user.email }).from(user).where(eq(user.id, userId));
   return rows[0]?.email ?? "";
 };
+// FX provider: 키 있을 때만(없으면 identity/manual만). 캐시·trip_default는 항상.
+const fxProviders = [
+  ...(core.config.OXR_APP_ID ? [new OxrProvider(core.config.OXR_APP_ID)] : []),
+  ...(core.config.CURRENCYAPI_KEY ? [new CurrencyApiProvider(core.config.CURRENCYAPI_KEY)] : []),
+];
+const expensesService = new ExpensesService(core.db, new DrizzleExpenseRepo(core.db), {
+  providers: fxProviders,
+  cache: new RedisCache(redis),
+  tripDefaults: new DrizzleTripDefaults(core.db),
+  onWarn: (event, detail) => core.logger.warn({ event, detail }, "fx"),
+});
 const v1 = buildV1App({
   tripsService,
   membersService,
+  expensesService,
   resolver: authResolver(auth),
   emailOf,
   memberLookup: (t, u) => memberRepo.findMembership(t, u),
+  idempotencyStore: { redis, ttlSeconds: 86_400 },
   webOrigins: core.config.WEB_ORIGINS,
 });
 app.route("/", v1); // v1 라우트는 /v1/... (basePath)

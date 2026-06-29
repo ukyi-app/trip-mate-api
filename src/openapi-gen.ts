@@ -6,9 +6,11 @@ import { buildV1App } from "./app.ts";
 const v1 = buildV1App({
   tripsService: {} as never,
   membersService: {} as never,
+  expensesService: {} as never,
   resolver: async () => null,
   emailOf: async () => "",
   memberLookup: async () => null,
+  idempotencyStore: null,
   webOrigins: ["http://localhost:5173"], // 정적 — env 불요
 });
 const doc = v1.getOpenAPI31Document({

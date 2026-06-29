@@ -23,6 +23,9 @@ export const env = createEnv({
           .filter(Boolean),
       ),
     INVITE_TOKEN_TTL_HOURS: z.coerce.number().int().positive().default(168), // 7d
+    // ── FX 통합 슬라이스 추가 ── (provider 키 — 있으면 auto FX, 없으면 identity/manual만)
+    OXR_APP_ID: z.string().optional(),
+    CURRENCYAPI_KEY: z.string().optional(),
     USE_SECURE_COOKIES: z
       .enum(["true", "false"])
       .default("true")
