@@ -14,8 +14,10 @@ const noSession: SessionResolver = async () => null;
 
 const lookup =
   (rows: Record<string, { role: string; status: string }>): MembershipLookup =>
-  async (tripId, userId) =>
-    rows[`${tripId}:${userId}`] ?? null;
+  async (tripId, userId) => {
+    const r = rows[`${tripId}:${userId}`];
+    return r ? { id: `m-${userId}`, ...r } : null;
+  };
 
 function appWith(resolver: SessionResolver, look: MembershipLookup) {
   const app = new Hono();

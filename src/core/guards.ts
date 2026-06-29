@@ -6,6 +6,7 @@ export interface SessionUser {
 }
 export type SessionResolver = (headers: Headers) => Promise<{ user: SessionUser } | null>;
 export interface Membership {
+  id: string; // = trip_members.id (member_id) — expense paid_by/created_by에 필요
   role: string;
   status: string;
 }
