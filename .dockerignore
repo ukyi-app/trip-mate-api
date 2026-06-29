@@ -1,0 +1,7 @@
+node_modules
+.worktrees
+docs
+*.test.ts
+.env
+.env.*
+!.env.example

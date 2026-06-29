@@ -1,0 +1,7 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "rules": {
+    "unicorn/filename-case": ["error", { "case": "kebabCase", "ignore": ["\\.[a-z]+\\.ts$"] }]
+  },
+  "ignorePatterns": ["src/db/schema/auth-schema.ts", "src/db/migrations/**", "node_modules/**"]
+}
