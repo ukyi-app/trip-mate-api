@@ -14,6 +14,8 @@ import { TripsService } from "./modules/trips/trips.service.ts";
 import { MembersService } from "./modules/members/members.service.ts";
 import { DrizzleExpenseRepo } from "./modules/expenses/expenses.repo.ts";
 import { ExpensesService } from "./modules/expenses/expenses.service.ts";
+import { DrizzleSettlementRepo } from "./modules/settlements/settlements.repo.ts";
+import { SettlementsService } from "./modules/settlements/settlements.service.ts";
 import { RedisCache } from "./modules/fx/cache/cache.redis.ts";
 import { DrizzleTripDefaults } from "./modules/fx/trip-defaults.repo.ts";
 import { OxrProvider } from "./modules/fx/provider/oxr.ts";
@@ -75,10 +77,12 @@ const expensesService = new ExpensesService(core.db, new DrizzleExpenseRepo(core
   tripDefaults: new DrizzleTripDefaults(core.db),
   onWarn: (event, detail) => core.logger.warn({ event, detail }, "fx"),
 });
+const settlementsService = new SettlementsService(core.db, new DrizzleSettlementRepo(core.db));
 const v1 = buildV1App({
   tripsService,
   membersService,
   expensesService,
+  settlementsService,
   resolver: authResolver(auth),
   emailOf,
   memberLookup: (t, u) => memberRepo.findMembership(t, u),

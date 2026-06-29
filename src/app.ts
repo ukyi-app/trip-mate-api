@@ -6,9 +6,11 @@ import { registerErrorFilter } from "./core/errors.ts";
 import { registerTripRoutes } from "./modules/trips/trips.controller.ts";
 import { registerMemberRoutes } from "./modules/members/members.controller.ts";
 import { registerExpenseRoutes } from "./modules/expenses/expenses.controller.ts";
+import { registerSettlementRoutes } from "./modules/settlements/settlements.controller.ts";
 import type { TripsService } from "./modules/trips/trips.service.ts";
 import type { MembersService } from "./modules/members/members.service.ts";
 import type { ExpensesService } from "./modules/expenses/expenses.service.ts";
+import type { SettlementsService } from "./modules/settlements/settlements.service.ts";
 import type { IdempotencyStore } from "./core/idempotency.ts";
 import type { SessionResolver, MembershipLookup } from "./core/guards.ts";
 
@@ -16,6 +18,7 @@ export interface V1Deps {
   tripsService: TripsService<Record<string, unknown>>;
   membersService: MembersService;
   expensesService: ExpensesService<Record<string, unknown>>;
+  settlementsService: SettlementsService<Record<string, unknown>>;
   resolver: SessionResolver;
   emailOf: (userId: string) => Promise<string>;
   memberLookup: MembershipLookup;
@@ -53,6 +56,12 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
   });
   registerExpenseRoutes(v1, {
     expensesService: deps.expensesService,
+    resolver: deps.resolver,
+    memberLookup: deps.memberLookup,
+    idempotencyStore: deps.idempotencyStore,
+  });
+  registerSettlementRoutes(v1, {
+    settlementsService: deps.settlementsService,
     resolver: deps.resolver,
     memberLookup: deps.memberLookup,
     idempotencyStore: deps.idempotencyStore,
