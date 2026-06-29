@@ -20,6 +20,7 @@
       "devDependencies": {
         "@better-auth/cli": "^1.4.21",
         "@testcontainers/postgresql": "^12.0.3",
+        "@testcontainers/redis": "^12.0.3",
         "@types/node": "^26.0.1",
         "drizzle-kit": "^0.31.10",
         "drizzle-zod": "^0.8.3",
@@ -375,6 +376,8 @@
     "@t3-oss/env-core": ["@t3-oss/env-core@0.13.11", "", { "peerDependencies": { "arktype": "^2.1.0", "typescript": ">=5.0.0", "valibot": "^1.0.0-beta.7 || ^1.0.0", "zod": "^3.24.0 || ^4.0.0" }, "optionalPeers": ["arktype", "typescript", "valibot", "zod"] }, "sha512-sM7GYY+KL7H/Hl0BE0inWfk3nRHZOLhmVn7sHGxaZt9FAR6KqREXAE+6TqKfiavfXmpRxO/OZ2QgKRd+oiBYRQ=="],
 
     "@testcontainers/postgresql": ["@testcontainers/postgresql@12.0.3", "", { "dependencies": { "testcontainers": "^12.0.3" } }, "sha512-y0l/ItWxNfdMU783EOZ66lMq90uuuXPqE+fo1jNSRfMbtfUq/9Ez/wluDxxaS+D/i3I0juep+jmz/WVuip8i9Q=="],
+
+    "@testcontainers/redis": ["@testcontainers/redis@12.0.3", "", { "dependencies": { "testcontainers": "^12.0.3" } }, "sha512-hN3YedOSb6quFzG1IM4j/r/M635GcaYOxzbTuiSN7676BZHrx1VPl+xll3ojk8ds6TvenrfO37lrEVJYN2URlA=="],
 
     "@tybys/wasm-util": ["@tybys/wasm-util@0.10.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg=="],
 

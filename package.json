@@ -33,6 +33,7 @@
   "devDependencies": {
     "@better-auth/cli": "^1.4.21",
     "@testcontainers/postgresql": "^12.0.3",
+    "@testcontainers/redis": "^12.0.3",
     "@types/node": "^26.0.1",
     "drizzle-kit": "^0.31.10",
     "drizzle-zod": "^0.8.3",
