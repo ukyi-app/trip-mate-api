@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { trips } from "../../db/schema/trips.ts";
 import { tripMembers } from "../../db/schema/members.ts";
-import type { CreateTrip, TripResponse } from "./trips.schema.ts";
+import type { CreateTrip, TripResponse, UpdateTrip } from "./trips.schema.ts";
 
 const COLS = {
   id: trips.id,
@@ -20,7 +20,7 @@ export interface TripRepo {
   create(input: CreateTrip, userId: string, tx?: unknown): Promise<TripResponse>;
   findById(id: string): Promise<TripResponse | null>;
   listForUser(userId: string): Promise<TripResponse[]>;
-  update(id: string, patch: Partial<CreateTrip>): Promise<TripResponse | null>;
+  update(id: string, patch: UpdateTrip): Promise<TripResponse | null>;
 }
 
 export class DrizzleTripRepo<T extends Record<string, unknown>> implements TripRepo {
@@ -47,7 +47,7 @@ export class DrizzleTripRepo<T extends Record<string, unknown>> implements TripR
       .where(and(eq(tripMembers.user_id, userId), eq(tripMembers.status, "joined")));
     return rows as TripResponse[];
   }
-  async update(id: string, patch: Partial<CreateTrip>): Promise<TripResponse | null> {
+  async update(id: string, patch: UpdateTrip): Promise<TripResponse | null> {
     if (Object.keys(patch).length === 0) return this.findById(id);
     const rows = await this.db.update(trips).set(patch).where(eq(trips.id, id)).returning(COLS);
     return (rows[0] ?? null) as TripResponse | null;

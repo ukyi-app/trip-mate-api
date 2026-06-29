@@ -60,3 +60,4 @@ export const updateTripSchema = tripFields
   .openapi("UpdateTrip");
 export type TripResponse = z.infer<typeof tripResponseSchema>;
 export type CreateTrip = z.infer<typeof createTripSchema>;
+export type UpdateTrip = z.infer<typeof updateTripSchema>;

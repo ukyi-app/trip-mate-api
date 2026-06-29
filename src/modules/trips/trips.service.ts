@@ -2,7 +2,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { NotFoundError, ValidationError } from "../../core/errors.ts";
 import type { MembersService } from "../members/members.service.ts";
 import type { TripRepo } from "./trips.repo.ts";
-import type { CreateTrip, TripResponse } from "./trips.schema.ts";
+import type { CreateTrip, TripResponse, UpdateTrip } from "./trips.schema.ts";
 
 export interface TripActor {
   id: string;
@@ -48,7 +48,7 @@ export class TripsService<T extends Record<string, unknown>> {
     return t;
   }
   /** 수정은 어드민(미들웨어 requireTripMember('admin')가 게이팅). DB 제약 위반→422. */
-  async updateTrip(id: string, patch: Partial<CreateTrip>): Promise<TripResponse> {
+  async updateTrip(id: string, patch: UpdateTrip): Promise<TripResponse> {
     let t: TripResponse | null;
     try {
       t = await this.repo.update(id, patch);
