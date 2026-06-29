@@ -32,12 +32,10 @@ export interface MemberRepo {
   rotateInviteToken(inviteId: string, hash: string, expiresAt: Date): Promise<MemberRow | null>;
   findMembership(tripId: string, userId: string): Promise<MemberRow | null>;
   countActiveAdmins(tripId: string): Promise<number>;
-  ensureCreatorMembership(i: {
-    tripId: string;
-    userId: string;
-    displayName: string;
-    email: string;
-  }): Promise<MemberRow>;
+  ensureCreatorMembership(
+    i: { tripId: string; userId: string; displayName: string; email: string },
+    tx?: unknown,
+  ): Promise<MemberRow>;
 }
 
 const COLS = {
@@ -133,14 +131,14 @@ export class DrizzleMemberRepo<T extends Record<string, unknown>> implements Mem
     return rows[0]?.n ?? 0;
   }
 
-  /** 어드민 자동 멤버십(생성자 첫 로그인). **원자 멱등**(finding #4): onConflictDoNothing 후 재read. */
-  async ensureCreatorMembership(i: {
-    tripId: string;
-    userId: string;
-    displayName: string;
-    email: string;
-  }): Promise<MemberRow> {
-    await this.db
+  /** 어드민 자동 멤버십(생성자 첫 로그인). **원자 멱등**(finding #4): onConflictDoNothing 후 재read.
+   *  tx 주입 시 그 위에서 실행(trip 생성과 단일 tx — tx 내 inserted row 가시성, finding #2 pass1·pass2). */
+  async ensureCreatorMembership(
+    i: { tripId: string; userId: string; displayName: string; email: string },
+    tx?: unknown,
+  ): Promise<MemberRow> {
+    const exec = (tx as PostgresJsDatabase<T> | undefined) ?? this.db;
+    await exec
       .insert(tripMembers)
       .values({
         trip_id: i.tripId,
@@ -153,7 +151,11 @@ export class DrizzleMemberRepo<T extends Record<string, unknown>> implements Mem
         joined_at: new Date(),
       })
       .onConflictDoNothing(); // uq_member_user(trip_id,user_id) 또는 uq_member_email 충돌 시 no-op
-    const row = await this.findMembership(i.tripId, i.userId);
+    const rows = await exec
+      .select(COLS)
+      .from(tripMembers)
+      .where(and(eq(tripMembers.trip_id, i.tripId), eq(tripMembers.user_id, i.userId)));
+    const row = rows[0] ?? null;
     if (!row) throw new ConflictError("failed to ensure creator membership", { tripId: i.tripId });
     return row;
   }

@@ -105,8 +105,9 @@ export class MembersService {
     userId: string,
     displayName: string,
     email: string,
+    tx?: unknown,
   ): Promise<MemberRow> {
-    return this.repo.ensureCreatorMembership({ tripId, userId, displayName, email });
+    return this.repo.ensureCreatorMembership({ tripId, userId, displayName, email }, tx);
   }
 
   /** 마지막 어드민 가드(§9.5): 활성 어드민 ≤1이면 강등/비활성 차단. */
