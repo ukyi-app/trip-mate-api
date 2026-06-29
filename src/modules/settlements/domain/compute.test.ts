@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
-import { splitExpense } from "./compute.ts";
+import { splitExpense, minTransfers } from "./compute.ts";
 import { minor, type MemberId } from "../../../core/money.ts";
 
 const M = (s: string) => s as MemberId;
@@ -40,5 +40,35 @@ describe("splitExpense", () => {
         },
       ),
     );
+  });
+});
+
+describe("minTransfers", () => {
+  it("단순: a +100, b -100 → b→a 100", () => {
+    const net = new Map<MemberId, bigint>([
+      [M("a"), 100n],
+      [M("b"), -100n],
+    ]);
+    const t = minTransfers(net as Map<MemberId, never>, "KRW" as never);
+    expect(t).toEqual([{ from: M("b"), to: M("a"), amount: 100n, currency: "KRW" }]);
+  });
+  it("순환채무 정리 후 transfers ≤ n-1, from≠to, amount>0, round-trip", () => {
+    const net = new Map<MemberId, bigint>([
+      [M("a"), 50n],
+      [M("b"), 30n],
+      [M("c"), -80n],
+    ]);
+    const t = minTransfers(net as Map<MemberId, never>, "KRW" as never);
+    expect(t.length).toBeLessThanOrEqual(2);
+    for (const x of t) {
+      expect(x.from).not.toBe(x.to);
+      expect(x.amount > 0n).toBe(true);
+    }
+    const acc = new Map(net);
+    for (const x of t) {
+      acc.set(x.to, acc.get(x.to)! - x.amount);
+      acc.set(x.from, acc.get(x.from)! + x.amount);
+    }
+    expect([...acc.values()].every((v) => v === 0n)).toBe(true);
   });
 });
