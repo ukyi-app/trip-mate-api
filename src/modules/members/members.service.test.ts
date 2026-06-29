@@ -128,7 +128,7 @@ describe("MembersService.resendInvite", () => {
     const s = svc();
     const { token: old } = await s.createInvite(trip, "re@example.com", "G");
     const invite = await new DrizzleMemberRepo(ctx.db).findByTokenHash(hashToken(old));
-    const { token: fresh } = await s.resendInvite(invite!.id);
+    const { token: fresh } = await s.resendInvite(trip, invite!.id);
     await expect(s.acceptInvite(old, actor(me, "re@example.com"))).rejects.toThrow(ForbiddenError);
     const r = await s.acceptInvite(fresh, actor(me, "re@example.com"));
     expect(r.status).toBe("joined");

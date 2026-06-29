@@ -108,7 +108,7 @@ describe("DrizzleMemberRepo", () => {
     });
     const row = await repo.findByTokenHash(h1);
     const { hash: h2 } = generateInviteToken();
-    const rotated = await repo.rotateInviteToken(row!.id, h2, future());
+    const rotated = await repo.rotateInviteToken(trip, row!.id, h2, future());
     expect(rotated?.id).toBe(row!.id);
     expect(await repo.findByTokenHash(h1)).toBeNull(); // 이전 hash 무효
     expect((await repo.findByTokenHash(h2))?.id).toBe(row!.id); // 새 hash 유효
@@ -119,7 +119,9 @@ describe("DrizzleMemberRepo", () => {
       hash: h2,
       normalizedEmail: "rot@example.com",
     });
-    expect(await repo.rotateInviteToken(row!.id, generateInviteToken().hash, future())).toBeNull();
+    expect(
+      await repo.rotateInviteToken(trip, row!.id, generateInviteToken().hash, future()),
+    ).toBeNull();
   });
 
   it("findMembership·countActiveAdmins", async () => {

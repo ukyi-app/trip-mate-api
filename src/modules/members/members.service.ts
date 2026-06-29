@@ -1,6 +1,6 @@
 import { ConflictError, ForbiddenError } from "../../core/errors.ts";
 import { generateInviteToken, hashToken, normalizeEmail } from "./domain/invite-token.ts";
-import type { MemberRepo, MemberRow } from "./members.repo.ts";
+import type { MemberRepo, MemberRow, MemberPublic, MemberUpdate } from "./members.repo.ts";
 
 export interface Actor {
   id: string;
@@ -59,13 +59,31 @@ export class MembersService {
     return { token, link: `/invite/${token}`, inviteId: row.id };
   }
 
-  /** 재발송: 원자 rotateInviteToken 단일 호출 + **새 링크 반환**(발송은 caller). 부분실패 상태 없음(finding #3·pass2 #1). */
-  async resendInvite(inviteId: string): Promise<InviteCommand> {
+  /** 재발송: tripId 스코핑(교차-trip 차단, finding #1 pass1·pass4) 원자 rotateInviteToken + 새 링크 반환(발송은 caller). */
+  async resendInvite(tripId: string, inviteId: string): Promise<InviteCommand> {
     const { token, hash } = generateInviteToken();
-    const row = await this.repo.rotateInviteToken(inviteId, hash, this.expiry());
+    const row = await this.repo.rotateInviteToken(tripId, inviteId, hash, this.expiry());
     if (!row)
-      throw new ConflictError("invite not pending (already joined or removed)", { inviteId });
+      throw new ConflictError("invite not pending or not in this trip", { tripId, inviteId });
     return { token, link: `/invite/${token}`, inviteId };
+  }
+
+  async listMembers(tripId: string): Promise<MemberPublic[]> {
+    return this.repo.listByTrip(tripId);
+  }
+
+  /** 멤버 수정(display_name·status). admin 비활성 시 마지막 어드민 가드(§9.5). 잘못된 전이/부재→Conflict(finding #3 pass3). */
+  async updateMember(tripId: string, memberId: string, patch: MemberUpdate): Promise<MemberPublic> {
+    if (patch.status === "deactivated" && (await this.repo.isLastActiveAdmin(tripId, memberId))) {
+      throw new ForbiddenError("cannot deactivate the last admin", { tripId, memberId });
+    }
+    const row = await this.repo.updateMember(tripId, memberId, patch);
+    if (!row)
+      throw new ConflictError("member update not allowed (invalid transition or not found)", {
+        tripId,
+        memberId,
+      });
+    return row;
   }
 
   /** 설계 §3: 토큰→invite, 정규화 이메일 매칭, 원자 CAS. 이미 멤버면 멱등 성공, 경쟁/만료/다른 user면 ConflictError. */
