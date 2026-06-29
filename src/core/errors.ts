@@ -42,6 +42,7 @@ export class SettlementInvariantError extends AppError {
 // oxlint-disable-next-line typescript/no-explicit-any
 export function registerErrorFilter(app: Hono<any, any, any>): void {
   app.onError((err, c) => {
+    const problemJson = { "content-type": "application/problem+json" }; // RFC 9457 미디어타입(finding #3 pass2)
     if (err instanceof AppError) {
       return c.json(
         {
@@ -53,11 +54,13 @@ export function registerErrorFilter(app: Hono<any, any, any>): void {
           meta: err.meta,
         },
         err.status as never,
+        problemJson,
       );
     }
     return c.json(
       { type: "about:blank", title: "InternalError", status: 500, code: "InternalError" },
       500,
+      problemJson,
     );
   });
 }
