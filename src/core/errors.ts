@@ -37,8 +37,10 @@ export class SettlementInvariantError extends AppError {
   }
 }
 
-/** RFC 9457 problem+json 매핑. AppError는 code/status, 그 외 500. */
-export function registerErrorFilter(app: Hono): void {
+/** RFC 9457 problem+json 매핑. AppError는 code/status, 그 외 500.
+ *  app은 plain Hono(테스트)·OpenAPIHono(main) 모두 수용(Hono↔OpenAPIHono의 .fetch 변성 회피). */
+// oxlint-disable-next-line typescript/no-explicit-any
+export function registerErrorFilter(app: Hono<any, any, any>): void {
   app.onError((err, c) => {
     if (err instanceof AppError) {
       return c.json(
