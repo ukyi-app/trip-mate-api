@@ -19,6 +19,9 @@ import {
   insertTransferSelf,
   insertTransferPaidHalfState,
   insertPaidLocalTransfer,
+  insertDuplicateFxDefault,
+  insertFxDefaultBadCurrency,
+  insertFxDefaultNonPositiveRate,
 } from "./helpers.ts";
 
 let ctx: Ctx;
@@ -80,4 +83,10 @@ describe("DB 제약 (negative — 단일 위반만 주입, 유효 fixture 먼저
     expectViolation(() => insertDuplicateInviteToken(ctx), "23505", "uq_invite_token"));
   it("invalid payment_method 값 거부", () =>
     expectViolation(() => insertInvalidPaymentMethod(ctx), "23514", "payment_method_check"));
+  it("trip_fx_defaults 복합 PK 중복 거부", () =>
+    expectViolation(() => insertDuplicateFxDefault(ctx), "23505"));
+  it("trip_fx_defaults 잘못된 통화 FK 거부", () =>
+    expectViolation(() => insertFxDefaultBadCurrency(ctx), "23503"));
+  it("trip_fx_defaults rate<=0 거부", () =>
+    expectViolation(() => insertFxDefaultNonPositiveRate(ctx), "23514", "fx_default_rate_pos"));
 });

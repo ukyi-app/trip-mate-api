@@ -23,6 +23,7 @@ const CHECKS = [
   "transfer_distinct",
   "paid_consistency",
   "local_not_tracked",
+  "fx_default_rate_pos",
 ];
 const INDEXES = [
   "uq_trip_settlement_ccy",
@@ -103,6 +104,15 @@ describe("schema introspection (SSOT 객체 존재)", () => {
     expect(find("expense_participants")).toContain("PRIMARY KEY (expense_id, member_id)");
     expect(find("settlement_currency_totals")).toContain("PRIMARY KEY (settlement_id, currency)");
   });
+  it("trip_fx_defaults 복합 PK 존재", async () => {
+    const rows =
+      await ctx.sql`select conrelid::regclass::text as tbl, pg_get_constraintdef(oid) as def from pg_constraint where contype='p'`;
+    const def = (
+      (rows.find((r) => (r.tbl as string).replace(/^public\./, "") === "trip_fx_defaults")
+        ?.def as string) ?? ""
+    ).replace(/"/g, "");
+    expect(def).toContain("PRIMARY KEY (trip_id, base_currency, settlement_currency)");
+  });
   it("account(provider_id, account_id) 유니크 존재 (이메일 링킹 금지)", async () => {
     const rows =
       await ctx.sql`select indexdef from pg_indexes where schemaname='public' and tablename='account'`;
@@ -145,6 +155,7 @@ describe("schema introspection (SSOT 객체 존재)", () => {
       "settlement_currency_totals->settlements",
       "settlement_transfers->settlements",
       "settlement_member_summaries->settlements",
+      "trip_fx_defaults->trips",
     ];
     for (const r of required) expect(cascades, `missing ON DELETE CASCADE: ${r}`).toContain(r);
   });

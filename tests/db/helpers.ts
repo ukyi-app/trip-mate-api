@@ -236,3 +236,27 @@ export async function insertPaidLocalTransfer(ctx: Ctx) {
   await ctx.sql`insert into settlement_transfers (id, settlement_id, trip_id, basis, currency, from_member_id, to_member_id, amount, payment_status, paid_at, marked_by_member_id)
     values (${randomUUID()}, ${settlement}, ${trip}, 'local', 'KRW', ${m2}, ${m1}, 100, 'paid', now(), ${m1})`; // basis=local인데 paid → local_not_tracked
 }
+
+export async function insertDuplicateFxDefault(ctx: Ctx) {
+  const u = await mkUser(ctx.sql);
+  const trip = await mkTrip(ctx.sql, u);
+  const row = `insert into trip_fx_defaults (trip_id, base_currency, settlement_currency, rate) values ($1,'THB','KRW','37.9')`;
+  await ctx.sql.unsafe(row, [trip]);
+  await ctx.sql.unsafe(row, [trip]); // 복합 PK 중복 → 23505
+}
+export async function insertFxDefaultBadCurrency(ctx: Ctx) {
+  const u = await mkUser(ctx.sql);
+  const trip = await mkTrip(ctx.sql, u);
+  await ctx.sql.unsafe(
+    `insert into trip_fx_defaults (trip_id, base_currency, settlement_currency, rate) values ($1,'XXX','KRW','1')`,
+    [trip],
+  ); // currency FK → 23503
+}
+export async function insertFxDefaultNonPositiveRate(ctx: Ctx) {
+  const u = await mkUser(ctx.sql);
+  const trip = await mkTrip(ctx.sql, u);
+  await ctx.sql.unsafe(
+    `insert into trip_fx_defaults (trip_id, base_currency, settlement_currency, rate) values ($1,'THB','KRW','0')`,
+    [trip],
+  ); // fx_default_rate_pos → 23514
+}
