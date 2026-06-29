@@ -21,8 +21,11 @@
     "@hono/zod-openapi": "^1.4.0",
     "@t3-oss/env-core": "^0.13.11",
     "better-auth": "^1.6.22",
+    "decimal.js": "^10.6.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.27",
+    "ioredis": "^5.11.1",
+    "ofetch": "^1.5.1",
     "pino": "^10.3.1",
     "postgres": "^3.4.9",
     "zod": "^4.4.3"
