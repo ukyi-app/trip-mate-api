@@ -8,3 +8,6 @@ coverage/
 .DS_Store
 
 .worktrees/
+
+# 생성물(gen:openapi)
+openapi.json
