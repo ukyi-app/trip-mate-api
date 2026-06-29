@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import fc from "fast-check";
 import { splitExpense, minTransfers, computeSettlement, type ExpenseInput } from "./compute.ts";
 import { minor, money, type ExpenseId, type MemberId } from "../../../core/money.ts";
+import { ValidationError, SettlementInvariantError } from "../../../core/errors.ts";
 
 const exp = (
   o: Partial<ExpenseInput> &
@@ -201,5 +202,96 @@ describe("computeSettlement (환불 없음)", () => {
     const r1 = computeSettlement({ members, expenses: base });
     const r2 = computeSettlement({ members, expenses: [...base].reverse() });
     expect(r1.settlement.transfers).toEqual(r2.settlement.transfers);
+  });
+});
+
+describe("환불 미러링", () => {
+  const orig = (id: string, payer: string, parts: string[], amt: bigint): ExpenseInput =>
+    exp({
+      id: id as ExpenseId,
+      paid_by: M(payer),
+      participants: parts.map(M),
+      local: money(amt, "KRW"),
+      settlement: money(amt, "KRW"),
+    });
+  const refund = (
+    id: string,
+    of: string,
+    payer: string,
+    parts: string[],
+    amt: bigint,
+  ): ExpenseInput =>
+    exp({
+      id: id as ExpenseId,
+      refund_of: of as ExpenseId,
+      paid_by: M(payer),
+      participants: parts.map(M),
+      local: money(amt, "KRW"),
+      settlement: money(amt, "KRW"),
+    });
+
+  it("전액 환불 → 전원 net 0 (phantom 송금 없음)", () => {
+    const r = computeSettlement({
+      members: [M("a"), M("b"), M("c")],
+      expenses: [
+        orig("e1", "a", ["a", "b", "c"], 100n),
+        refund("r1", "e1", "a", ["a", "b", "c"], -100n),
+      ],
+    });
+    expect(r.settlement.summaries.every((s) => s.net === 0n)).toBe(true);
+    expect(r.settlement.transfers).toEqual([]);
+  });
+
+  it("다중 분할 환불 합성 = 원 split 정확 미러", () => {
+    const r = computeSettlement({
+      members: [M("a"), M("b"), M("c")],
+      expenses: [
+        orig("e1", "a", ["a", "b", "c"], 100n),
+        refund("r1", "e1", "a", ["a", "b", "c"], -50n),
+        refund("r2", "e1", "a", ["a", "b", "c"], -50n),
+      ],
+    });
+    expect(r.settlement.summaries.every((s) => s.net === 0n)).toBe(true);
+  });
+
+  it("부분 환불 -50 → 잔여 apportionment (소수부 desc·id asc)", () => {
+    const r = computeSettlement({
+      members: [M("a"), M("b"), M("c")],
+      expenses: [
+        orig("e1", "a", ["a", "b", "c"], 100n),
+        refund("r1", "e1", "a", ["a", "b", "c"], -50n),
+      ],
+    });
+    const share = Object.fromEntries(r.settlement.summaries.map((s) => [s.member, s.total_share]));
+    expect(share[M("a")]).toBe(34n - 17n);
+    expect(share[M("b")]).toBe(33n - 17n);
+    expect(share[M("c")]).toBe(33n - 16n);
+  });
+
+  it("over-refund(누적>원액) → ValidationError", () => {
+    expect(() =>
+      computeSettlement({
+        members: [M("a"), M("b")],
+        expenses: [orig("e1", "a", ["a", "b"], 100n), refund("r1", "e1", "a", ["a", "b"], -150n)],
+      }),
+    ).toThrow(ValidationError);
+  });
+
+  it("refund.paid_by != original.paid_by → ValidationError", () => {
+    expect(() =>
+      computeSettlement({
+        members: [M("a"), M("b")],
+        expenses: [orig("e1", "a", ["a", "b"], 100n), refund("r1", "e1", "b", ["a", "b"], -50n)],
+      }),
+    ).toThrow(ValidationError);
+  });
+
+  it("원지출 부재(입력 닫힘 위반) → SettlementInvariantError", () => {
+    expect(() =>
+      computeSettlement({
+        members: [M("a"), M("b")],
+        expenses: [refund("r1", "eX", "a", ["a", "b"], -50n)],
+      }),
+    ).toThrow(SettlementInvariantError);
   });
 });

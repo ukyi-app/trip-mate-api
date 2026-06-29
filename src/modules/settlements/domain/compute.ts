@@ -5,7 +5,7 @@ import {
   type Minor,
   type Money,
 } from "../../../core/money.ts";
-import { SettlementInvariantError } from "../../../core/errors.ts";
+import { SettlementInvariantError, ValidationError } from "../../../core/errors.ts";
 
 export const byIdAsc = (a: MemberId, b: MemberId): number => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -87,21 +87,117 @@ export interface SettlementResult {
   local: Record<string, AxisResult>;
 }
 
-/** 한 통화축: 멤버별 paid/share/net 집계(Σnet==0) + 최소송금. amountOf로 축(local/settlement) 선택. */
-function computeAxis(
-  members: MemberId[],
+/** |R|(양수)을 origShare 가중으로 정수 apportion(floor + largest-remainder, 소수부 desc·id asc). 음수 반환. */
+function apportionRefund(
+  absR: bigint,
+  origShare: Map<MemberId, Minor>,
+  absOrig: bigint,
+): Map<MemberId, bigint> {
+  const entries = [...origShare.entries()];
+  const base = new Map<MemberId, bigint>();
+  const frac = new Map<MemberId, bigint>();
+  let assigned = 0n;
+  for (const [m, sh] of entries) {
+    const num = absR * (sh as bigint);
+    base.set(m, num / absOrig);
+    frac.set(m, num % absOrig);
+    assigned += num / absOrig;
+  }
+  let remainder = absR - assigned; // 0 <= remainder < entries.length
+  const order = entries
+    .map(([m]) => m)
+    .sort((a, b) => {
+      const fb = (frac.get(b) ?? 0n) - (frac.get(a) ?? 0n);
+      return fb !== 0n ? (fb > 0n ? 1 : -1) : byIdAsc(a, b);
+    });
+  const out = new Map<MemberId, bigint>();
+  for (const m of order) {
+    const bonus = remainder > 0n ? 1n : 0n;
+    if (remainder > 0n) remainder -= 1n;
+    out.set(m, -((base.get(m) ?? 0n) + bonus));
+  }
+  return out;
+}
+
+interface RefundGroup {
+  original: ExpenseInput;
+  refunds: ExpenseInput[];
+}
+
+/** 원지출/환불 분리 + 검증(닫힘·통화·payer·부호·누적≤원액). axis별 amountOf로 호출(§6.3). */
+function partitionAndValidate(
   expenses: ExpenseInput[],
+  amountOf: (e: ExpenseInput) => Minor,
+): { onlyNormal: ExpenseInput[]; groups: Map<ExpenseId, RefundGroup> } {
+  const byId = new Map(expenses.map((e) => [e.id, e]));
+  const normal: ExpenseInput[] = [];
+  const groups = new Map<ExpenseId, RefundGroup>();
+  for (const e of expenses) {
+    if (e.refund_of === undefined) {
+      normal.push(e);
+      continue;
+    }
+    const original = byId.get(e.refund_of);
+    if (!original || original.refund_of !== undefined) {
+      throw new SettlementInvariantError("refund input not closed");
+    }
+    if (
+      e.local.currency !== original.local.currency ||
+      e.settlement.currency !== original.settlement.currency
+    ) {
+      throw new ValidationError("refund currency mismatch");
+    }
+    if (e.paid_by !== original.paid_by) {
+      throw new ValidationError("refund payer must equal original payer");
+    }
+    if (amountOf(e) >= 0n) throw new ValidationError("refund amount must be negative");
+    if (amountOf(original) <= 0n) throw new ValidationError("original amount must be positive");
+    const g = groups.get(original.id) ?? { original, refunds: [] };
+    g.refunds.push(e);
+    groups.set(original.id, g);
+  }
+  const grouped = new Set(groups.keys());
+  const onlyNormal = normal.filter((e) => !grouped.has(e.id));
+  for (const g of groups.values()) {
+    const cum = g.refunds.reduce((a, r) => a + amountOf(r), 0n);
+    if (-cum > amountOf(g.original))
+      throw new ValidationError("over-refund: cumulative > original");
+  }
+  return { onlyNormal, groups };
+}
+
+/** 한 통화축: 일반 지출은 균등 분배, 환불 그룹은 원지출 단위 누적 apportionment로 share 미러(§6.1). */
+function computeAxisWithRefunds(
+  members: MemberId[],
+  normal: ExpenseInput[],
+  groups: Map<ExpenseId, RefundGroup>,
   currency: CurrencyCode,
   amountOf: (e: ExpenseInput) => Minor,
 ): AxisResult {
   const paid = new Map<MemberId, bigint>(members.map((m) => [m, 0n]));
   const share = new Map<MemberId, bigint>(members.map((m) => [m, 0n]));
   let total = 0n;
-  for (const e of expenses) {
+  for (const e of normal) {
     const amt = amountOf(e);
     total += amt;
     paid.set(e.paid_by, (paid.get(e.paid_by) ?? 0n) + amt);
     for (const [m, v] of splitExpense(amt, e.participants)) share.set(m, (share.get(m) ?? 0n) + v);
+  }
+  for (const { original, refunds } of groups.values()) {
+    const oAmt = amountOf(original);
+    total += oAmt;
+    paid.set(original.paid_by, (paid.get(original.paid_by) ?? 0n) + oAmt);
+    const oShare = splitExpense(oAmt, original.participants);
+    for (const [m, v] of oShare) share.set(m, (share.get(m) ?? 0n) + v);
+    let r = 0n;
+    for (const rf of refunds) {
+      const rAmt = amountOf(rf);
+      total += rAmt;
+      r += rAmt;
+      paid.set(rf.paid_by, (paid.get(rf.paid_by) ?? 0n) + rAmt);
+    }
+    const cum = apportionRefund(-r, oShare, oAmt);
+    for (const [m, v] of cum) share.set(m, (share.get(m) ?? 0n) + v);
   }
   const summaries: Summary[] = members.map((m) => {
     const tp = (paid.get(m) ?? 0n) as Minor;
@@ -129,9 +225,11 @@ export function computeSettlement(input: {
       throw new SettlementInvariantError("mixed settlement currency");
     }
   }
-  const settlement = computeAxis(
+  const sp = partitionAndValidate(input.expenses, (e) => e.settlement.amount);
+  const settlement = computeAxisWithRefunds(
     input.members,
-    input.expenses,
+    sp.onlyNormal,
+    sp.groups,
     settlementCurrency ?? ("KRW" as CurrencyCode),
     (e) => e.settlement.amount,
   );
@@ -144,7 +242,14 @@ export function computeSettlement(input: {
   }
   const local: Record<string, AxisResult> = {};
   for (const [c, es] of byCurrency) {
-    local[c] = computeAxis(input.members, es, c as CurrencyCode, (e) => e.local.amount);
+    const lp = partitionAndValidate(es, (e) => e.local.amount);
+    local[c] = computeAxisWithRefunds(
+      input.members,
+      lp.onlyNormal,
+      lp.groups,
+      c as CurrencyCode,
+      (e) => e.local.amount,
+    );
   }
   return { settlement, local };
 }
