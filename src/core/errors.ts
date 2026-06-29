@@ -1,3 +1,5 @@
+import type { Hono } from "hono";
+
 export class AppError extends Error {
   constructor(
     readonly code: string,
@@ -33,4 +35,27 @@ export class SettlementInvariantError extends AppError {
   constructor(message?: string, meta?: unknown) {
     super("SettlementInvariantError", 422, message, meta);
   }
+}
+
+/** RFC 9457 problem+json 매핑. AppError는 code/status, 그 외 500. */
+export function registerErrorFilter(app: Hono): void {
+  app.onError((err, c) => {
+    if (err instanceof AppError) {
+      return c.json(
+        {
+          type: "about:blank",
+          title: err.code,
+          status: err.status,
+          code: err.code,
+          detail: err.message,
+          meta: err.meta,
+        },
+        err.status as never,
+      );
+    }
+    return c.json(
+      { type: "about:blank", title: "InternalError", status: 500, code: "InternalError" },
+      500,
+    );
+  });
 }
