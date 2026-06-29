@@ -1,4 +1,10 @@
-import { type CurrencyCode, type MemberId, type Minor } from "../../../core/money.ts";
+import {
+  type CurrencyCode,
+  type ExpenseId,
+  type MemberId,
+  type Minor,
+  type Money,
+} from "../../../core/money.ts";
 import { SettlementInvariantError } from "../../../core/errors.ts";
 
 export const byIdAsc = (a: MemberId, b: MemberId): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -55,4 +61,90 @@ export function minTransfers(net: Map<MemberId, Minor>, currency: CurrencyCode):
     if (d.amt === 0n) j++;
   }
   return out;
+}
+
+export interface ExpenseInput {
+  id: ExpenseId;
+  paid_by: MemberId;
+  participants: MemberId[]; // ≥1 (검증됨)
+  local: Money;
+  settlement: Money; // settlement.currency = trip 정산통화(단일)
+  refund_of?: ExpenseId;
+}
+export interface Summary {
+  member: MemberId;
+  total_paid: Minor;
+  total_share: Minor;
+  net: Minor;
+}
+export interface AxisResult {
+  transfers: Transfer[];
+  summaries: Summary[];
+  total: Minor;
+}
+export interface SettlementResult {
+  settlement: AxisResult;
+  local: Record<string, AxisResult>;
+}
+
+/** 한 통화축: 멤버별 paid/share/net 집계(Σnet==0) + 최소송금. amountOf로 축(local/settlement) 선택. */
+function computeAxis(
+  members: MemberId[],
+  expenses: ExpenseInput[],
+  currency: CurrencyCode,
+  amountOf: (e: ExpenseInput) => Minor,
+): AxisResult {
+  const paid = new Map<MemberId, bigint>(members.map((m) => [m, 0n]));
+  const share = new Map<MemberId, bigint>(members.map((m) => [m, 0n]));
+  let total = 0n;
+  for (const e of expenses) {
+    const amt = amountOf(e);
+    total += amt;
+    paid.set(e.paid_by, (paid.get(e.paid_by) ?? 0n) + amt);
+    for (const [m, v] of splitExpense(amt, e.participants)) share.set(m, (share.get(m) ?? 0n) + v);
+  }
+  const summaries: Summary[] = members.map((m) => {
+    const tp = (paid.get(m) ?? 0n) as Minor;
+    const ts = (share.get(m) ?? 0n) as Minor;
+    return { member: m, total_paid: tp, total_share: ts, net: (tp - ts) as Minor };
+  });
+  let netSum = 0n;
+  const net = new Map<MemberId, Minor>();
+  for (const s of summaries) {
+    netSum += s.net;
+    net.set(s.member, s.net);
+  }
+  if (netSum !== 0n) throw new SettlementInvariantError("Σnet != 0");
+  return { transfers: minTransfers(net, currency), summaries, total: total as Minor };
+}
+
+export function computeSettlement(input: {
+  expenses: ExpenseInput[];
+  members: MemberId[];
+}): SettlementResult {
+  // settlement 축: 모든 지출이 동일 정산통화여야 함 (PRD §17.1)
+  const settlementCurrency = input.expenses[0]?.settlement.currency;
+  for (const e of input.expenses) {
+    if (settlementCurrency && e.settlement.currency !== settlementCurrency) {
+      throw new SettlementInvariantError("mixed settlement currency");
+    }
+  }
+  const settlement = computeAxis(
+    input.members,
+    input.expenses,
+    settlementCurrency ?? ("KRW" as CurrencyCode),
+    (e) => e.settlement.amount,
+  );
+  // local 축: 통화별 독립 서브축 (Phase3 다통화)
+  const byCurrency = new Map<string, ExpenseInput[]>();
+  for (const e of input.expenses) {
+    const c = e.local.currency;
+    if (!byCurrency.has(c)) byCurrency.set(c, []);
+    byCurrency.get(c)!.push(e);
+  }
+  const local: Record<string, AxisResult> = {};
+  for (const [c, es] of byCurrency) {
+    local[c] = computeAxis(input.members, es, c as CurrencyCode, (e) => e.local.amount);
+  }
+  return { settlement, local };
 }

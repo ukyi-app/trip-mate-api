@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
-import { splitExpense, minTransfers } from "./compute.ts";
-import { minor, type MemberId } from "../../../core/money.ts";
+import { splitExpense, minTransfers, computeSettlement, type ExpenseInput } from "./compute.ts";
+import { minor, money, type ExpenseId, type MemberId } from "../../../core/money.ts";
+
+const exp = (
+  o: Partial<ExpenseInput> &
+    Pick<ExpenseInput, "id" | "paid_by" | "participants" | "local" | "settlement">,
+): ExpenseInput => o as ExpenseInput;
 
 const M = (s: string) => s as MemberId;
 const sum = (m: Map<MemberId, bigint>) => [...m.values()].reduce((a, b) => a + b, 0n);
@@ -70,5 +75,131 @@ describe("minTransfers", () => {
       acc.set(x.from, acc.get(x.from)! + x.amount);
     }
     expect([...acc.values()].every((v) => v === 0n)).toBe(true);
+  });
+});
+
+describe("computeSettlement (환불 없음)", () => {
+  it("3인 균등: a가 9000 KRW 결제, 셋이 분담 → a +6000, b/c -3000", () => {
+    const r = computeSettlement({
+      members: [M("a"), M("b"), M("c")],
+      expenses: [
+        exp({
+          id: "e1" as ExpenseId,
+          paid_by: M("a"),
+          participants: [M("a"), M("b"), M("c")],
+          local: money(9000n, "KRW"),
+          settlement: money(9000n, "KRW"),
+        }),
+      ],
+    });
+    const byMember = Object.fromEntries(r.settlement.summaries.map((s) => [s.member, s.net]));
+    expect(byMember[M("a")]).toBe(6000n);
+    expect(byMember[M("b")]).toBe(-3000n);
+    expect(byMember[M("c")]).toBe(-3000n);
+    expect(r.settlement.summaries.reduce((a, s) => a + s.net, 0n)).toBe(0n);
+    expect(r.settlement.total).toBe(9000n);
+  });
+
+  it("결제자가 참여자가 아님(대납): paid_by=a, participants=[b,c]", () => {
+    const r = computeSettlement({
+      members: [M("a"), M("b"), M("c")],
+      expenses: [
+        exp({
+          id: "e1" as ExpenseId,
+          paid_by: M("a"),
+          participants: [M("b"), M("c")],
+          local: money(1000n, "KRW"),
+          settlement: money(1000n, "KRW"),
+        }),
+      ],
+    });
+    const by = Object.fromEntries(r.settlement.summaries.map((s) => [s.member, s.net]));
+    expect(by[M("a")]).toBe(1000n);
+    expect(by[M("b")]).toBe(-500n);
+    expect(by[M("c")]).toBe(-500n);
+  });
+
+  it("local 다통화 독립 서브축", () => {
+    const r = computeSettlement({
+      members: [M("a"), M("b")],
+      expenses: [
+        exp({
+          id: "e1" as ExpenseId,
+          paid_by: M("a"),
+          participants: [M("a"), M("b")],
+          local: money(1000n, "JPY"),
+          settlement: money(9320n, "KRW"),
+        }),
+        exp({
+          id: "e2" as ExpenseId,
+          paid_by: M("b"),
+          participants: [M("a"), M("b")],
+          local: money(100n, "THB"),
+          settlement: money(3790n, "KRW"),
+        }),
+      ],
+    });
+    expect(Object.keys(r.local).sort()).toEqual(["JPY", "THB"]);
+    expect(r.local["JPY"]!.total).toBe(1000n);
+    expect(r.local["THB"]!.total).toBe(100n);
+  });
+
+  it("property: 임의 입력에서 Σnet==0 (settlement 축)", () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            amount: fc.bigInt({ min: 1n, max: 1_000_000n }),
+            payer: fc.integer({ min: 0, max: 4 }),
+            parts: fc.uniqueArray(fc.integer({ min: 0, max: 4 }), { minLength: 1, maxLength: 5 }),
+          }),
+          { minLength: 1, maxLength: 20 },
+        ),
+        (rows) => {
+          const members = [M("m0"), M("m1"), M("m2"), M("m3"), M("m4")];
+          const expenses = rows.map((row, k) =>
+            exp({
+              id: `e${k}` as ExpenseId,
+              paid_by: members[row.payer]!,
+              participants: row.parts.map((p) => members[p]!),
+              local: money(row.amount, "KRW"),
+              settlement: money(row.amount, "KRW"),
+            }),
+          );
+          const r = computeSettlement({ members, expenses });
+          return r.settlement.summaries.reduce((a, x) => a + x.net, 0n) === 0n;
+        },
+      ),
+    );
+  });
+
+  it("property: 결정성 — 입력 순서를 셔플해도 동일 transfers", () => {
+    const members = [M("a"), M("b"), M("c"), M("d")];
+    const base: ExpenseInput[] = [
+      exp({
+        id: "e1" as ExpenseId,
+        paid_by: M("a"),
+        participants: [M("a"), M("b"), M("c")],
+        local: money(1000n, "KRW"),
+        settlement: money(1000n, "KRW"),
+      }),
+      exp({
+        id: "e2" as ExpenseId,
+        paid_by: M("b"),
+        participants: [M("b"), M("c"), M("d")],
+        local: money(2000n, "KRW"),
+        settlement: money(2000n, "KRW"),
+      }),
+      exp({
+        id: "e3" as ExpenseId,
+        paid_by: M("d"),
+        participants: members,
+        local: money(700n, "KRW"),
+        settlement: money(700n, "KRW"),
+      }),
+    ];
+    const r1 = computeSettlement({ members, expenses: base });
+    const r2 = computeSettlement({ members, expenses: [...base].reverse() });
+    expect(r1.settlement.transfers).toEqual(r2.settlement.transfers);
   });
 });
