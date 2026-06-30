@@ -11,7 +11,11 @@ import {
 import { computeSettlement, type ExpenseInput } from "./domain/compute.ts";
 import { money, type MemberId, type ExpenseId } from "../../core/money.ts";
 import { DrizzleSettlementRepo, type IncludedExpenseRow } from "./settlements.repo.ts";
-import type { SettlementResponse } from "./settlements.schema.ts";
+import type {
+  SettlementResponse,
+  SettlementHistoryEntry,
+  TransferEventEntry,
+} from "./settlements.schema.ts";
 
 export interface SettleActor {
   memberId: string;
@@ -254,9 +258,71 @@ export class SettlementsService<T extends Record<string, unknown>> {
       if (!xfer) throw new NotFoundError("transfer not found in active settlement");
       if (xfer.to_member_id !== actor.memberId && actor.role !== "admin")
         throw new ForbiddenError("only recipient or admin may mark paid", { transferId });
-      if (xfer.payment_status !== "paid")
+      if (xfer.payment_status !== "paid") {
         await this.repo.setTransferPaid(tx, tripId, transferId, actor.memberId);
+        await this.repo.insertTransferEvent(tx, {
+          transferId,
+          tripId,
+          settlementId: xfer.settlement_id,
+          eventType: "paid",
+          actorMemberId: actor.memberId,
+        });
+      }
       return { transferId, payment_status: "paid" };
     });
+  }
+
+  /** mark-unpaid(reversal): mark-paid 대칭 — finalized·active·settlement-basis·인가(수취인|admin).
+   *  paid→pending(CAS) + 'unpaid' 이벤트. 이미 pending이면 멱등 no-op(이벤트 없음). 설계 §4.1. */
+  async markUnpaid(
+    tripId: string,
+    transferId: string,
+    actor: SettleActor,
+  ): Promise<{ transferId: string; payment_status: string }> {
+    return this.db.transaction(async (tx) => {
+      const lock = await this.repo.lockTrip(tx, tripId);
+      if (!lock) throw new NotFoundError("trip not found");
+      if (lock.status !== "finalized")
+        throw new ConflictError("settlement not finalized; no reversible transfers", { tripId });
+      const xfer = await this.repo.getActiveSettlementTransfer(tx, tripId, transferId);
+      if (!xfer) throw new NotFoundError("transfer not found in active settlement");
+      if (xfer.to_member_id !== actor.memberId && actor.role !== "admin")
+        throw new ForbiddenError("only recipient or admin may mark unpaid", { transferId });
+      if (xfer.payment_status === "paid") {
+        await this.repo.setTransferUnpaid(tx, tripId, transferId);
+        await this.repo.insertTransferEvent(tx, {
+          transferId,
+          tripId,
+          settlementId: xfer.settlement_id,
+          eventType: "unpaid",
+          actorMemberId: actor.memberId,
+        });
+      }
+      return { transferId, payment_status: "pending" };
+    });
+  }
+
+  /** 정산 버전이력(active+superseded 헤더, 최신순). 설계 §4.3. */
+  async settlementHistory(tripId: string): Promise<SettlementHistoryEntry[]> {
+    const rows = await this.repo.listSettlementVersions(this.db, tripId);
+    return rows.map((r) => ({
+      version: r.version,
+      status: r.status as "active" | "superseded",
+      finalized_by_member_id: r.finalized_by_member_id,
+      finalized_at: r.finalized_at.toISOString(),
+      settlement_total: r.total_settlement_amount.toString(),
+    }));
+  }
+
+  /** transfer 결제 이벤트 로그. 해당 trip 소속 아니면 404. 설계 §4.4. */
+  async transferEvents(tripId: string, transferId: string): Promise<TransferEventEntry[]> {
+    if (!(await this.repo.getTransferTripScope(this.db, tripId, transferId)))
+      throw new NotFoundError("transfer not found");
+    const rows = await this.repo.listTransferEvents(this.db, tripId, transferId);
+    return rows.map((r) => ({
+      event_type: r.event_type as "paid" | "unpaid",
+      actor_member_id: r.actor_member_id,
+      created_at: r.created_at.toISOString(),
+    }));
   }
 }

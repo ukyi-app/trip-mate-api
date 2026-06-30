@@ -118,3 +118,86 @@ describe("SettlementsService", () => {
     });
   });
 });
+
+describe("SettlementsService reversal/history", () => {
+  async function finalized() {
+    const s = await scene();
+    await svc().finalize(s.trip, seenOf(await svc().getSettlement(s.trip)), {
+      memberId: s.admin,
+      role: "admin",
+    });
+    return s;
+  }
+  async function aTransfer(trip: string) {
+    const t =
+      await ctx.sql`select id, to_member_id from settlement_transfers where trip_id=${trip} and basis='settlement' limit 1`;
+    return { tid: t[0]!.id as string, recipient: t[0]!.to_member_id as string };
+  }
+
+  it("markPaid가 'paid' 이벤트 기록(전이 1건, 멱등 재호출 추가 안 함)", async () => {
+    const { trip } = await finalized();
+    const { tid, recipient } = await aTransfer(trip);
+    await svc().markPaid(trip, tid, { memberId: recipient, role: "member" });
+    await svc().markPaid(trip, tid, { memberId: recipient, role: "member" }); // 멱등
+    const ev = await svc().transferEvents(trip, tid);
+    expect(ev.filter((e) => e.event_type === "paid").length).toBe(1);
+  });
+
+  it("markUnpaid: paid→pending + 'unpaid' 이벤트(최신순)", async () => {
+    const { trip } = await finalized();
+    const { tid, recipient } = await aTransfer(trip);
+    await svc().markPaid(trip, tid, { memberId: recipient, role: "member" });
+    const r = await svc().markUnpaid(trip, tid, { memberId: recipient, role: "member" });
+    expect(r.payment_status).toBe("pending");
+    const ev = await svc().transferEvents(trip, tid);
+    expect(ev.map((e) => e.event_type)).toEqual(["unpaid", "paid"]);
+  });
+
+  it("markUnpaid: 비수취인·비admin → 403", async () => {
+    const { trip } = await finalized();
+    const { tid } = await aTransfer(trip);
+    const u3 = await mkUser(ctx.sql);
+    const m3 = await mkMember(ctx.sql, trip, { userId: u3, role: "member", status: "joined" });
+    await expect(
+      svc().markUnpaid(trip, tid, { memberId: m3, role: "member" }),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("markUnpaid: finalized 아님(unlock 후) → 409", async () => {
+    const { trip, admin } = await finalized();
+    const { tid } = await aTransfer(trip);
+    await svc().unlock(trip, { memberId: admin, role: "admin" }); // pending이라 unlock 가능
+    await expect(
+      svc().markUnpaid(trip, tid, { memberId: admin, role: "admin" }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("markUnpaid: 멱등(이미 pending) → pending·이벤트 없음", async () => {
+    const { trip } = await finalized();
+    const { tid, recipient } = await aTransfer(trip);
+    const r = await svc().markUnpaid(trip, tid, { memberId: recipient, role: "member" });
+    expect(r.payment_status).toBe("pending");
+    expect(await svc().transferEvents(trip, tid)).toEqual([]);
+  });
+
+  it("settlementHistory: 재확정 후 [v2 active, v1 superseded]", async () => {
+    const { trip, admin } = await finalized();
+    await svc().unlock(trip, { memberId: admin, role: "admin" });
+    await svc().finalize(trip, seenOf(await svc().getSettlement(trip)), {
+      memberId: admin,
+      role: "admin",
+    });
+    const h = await svc().settlementHistory(trip);
+    expect(h.map((x) => [x.version, x.status])).toEqual([
+      [2, "active"],
+      [1, "superseded"],
+    ]);
+  });
+
+  it("transferEvents: 타 trip transfer → 404", async () => {
+    const { trip } = await finalized();
+    await expect(
+      svc().transferEvents(trip, "11111111-1111-4111-8111-111111111111"),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+});
