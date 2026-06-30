@@ -38,7 +38,7 @@
 Valkey 인스턴스(ns `cache`) 생성(PR). 산출 `cache-trip-mate-conn`(ns `prod`)에 **`TRIP_MATE_REDIS_URL`** 키. 접속 `trip-mate.cache.svc.cluster.local:6379`.
 
 ### 3) 앱 시크릿 봉인(`trip-mate-api-secrets`, ns `prod`)
-`deploy/.env.example`를 `deploy/.env`로 복사해 값 채운 뒤 `bun run secret:seal`(=`tools/seal-secret.mts`, 평문은 kubeseal stdin으로만 흐름) → `deploy/trip-mate-api-secrets.sealed.yaml` 생성. `kubeseal` CLI 필요. `deploy/.env`는 gitignore(미추적). **DB/Redis URL은 넣지 않는다**(1·2단계 conn 핸들이 envFrom로 공급). 이 시크릿엔 앱 설정만:
+`.env.example`를 `.env`로 복사해 **prod 값**(`BETTER_AUTH_URL`=prod 도메인·`USE_SECURE_COOKIES=true` 등) 채운 뒤 `bun run secret:seal`(=`tools/seal-secret.mts`, 평문은 kubeseal stdin으로만 흐름) → `deploy/trip-mate-api-secrets.sealed.yaml`. `kubeseal` CLI 필요. 로컬 실행값(localhost URL·conn URL 등)은 `.env.local`에서 오버라이드(봉인 안 됨). **DB/Redis conn URL은 `.env`에 넣지 않는다**(1·2단계 conn 핸들이 envFrom로 공급). 봉인 대상은 앱 설정만:
 - `BETTER_AUTH_SECRET`(≥32자)·`BETTER_AUTH_URL`·`WEB_ORIGINS`·`USE_SECURE_COOKIES=true`·`INVITE_TOKEN_TTL_HOURS` (+선택 `GOOGLE_*`/`OXR_APP_ID`/`CURRENCYAPI_KEY`)
 
 ### 4) 앱 온보딩 — 디스패처 `create-app` (app=`trip-mate-api`)
