@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 const FULL: Record<string, string> = {
-  DATABASE_URL: "postgres://u:p@localhost:5432/db",
+  TRIP_MATE_DATABASE_URL: "postgres://u:p@localhost:5432/db",
   BETTER_AUTH_URL: "http://localhost:3000",
-  VALKEY_URL: "redis://localhost:6379",
+  TRIP_MATE_REDIS_URL: "redis://localhost:6379",
   WEB_ORIGINS: "http://localhost:5173",
   BETTER_AUTH_SECRET: "x".repeat(32),
 };

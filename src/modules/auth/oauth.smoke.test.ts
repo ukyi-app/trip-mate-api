@@ -4,8 +4,8 @@ const e = process.env;
 const hasKeys =
   !!e.GOOGLE_CLIENT_ID &&
   !!e.GOOGLE_CLIENT_SECRET &&
-  !!e.VALKEY_URL &&
-  !!e.DATABASE_URL &&
+  !!e.TRIP_MATE_REDIS_URL &&
+  !!e.TRIP_MATE_DATABASE_URL &&
   !!e.BETTER_AUTH_SECRET &&
   !!e.BETTER_AUTH_URL;
 
@@ -14,10 +14,10 @@ describe.skipIf(!hasKeys)("Better Auth 실 OAuth smoke (pre-deploy)", () => {
     const { createAuth } = await import("../../auth.ts");
     const { createDb } = await import("../../db/client.ts");
     const IoRedis = (await import("ioredis")).default;
-    const redis = new IoRedis(e.VALKEY_URL!);
+    const redis = new IoRedis(e.TRIP_MATE_REDIS_URL!);
     try {
       const auth = createAuth({
-        db: createDb(e.DATABASE_URL!),
+        db: createDb(e.TRIP_MATE_DATABASE_URL!),
         redis,
         secret: e.BETTER_AUTH_SECRET!,
         baseURL: e.BETTER_AUTH_URL!,
