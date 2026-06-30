@@ -8,6 +8,7 @@ function docApp() {
     membersService: {} as never,
     expensesService: {} as never,
     settlementsService: {} as never,
+    tripDefaults: {} as never,
     resolver: async () => null,
     emailOf: async () => "",
     memberLookup: async () => null,

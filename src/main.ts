@@ -71,10 +71,11 @@ const fxProviders = [
   ...(core.config.OXR_APP_ID ? [new OxrProvider(core.config.OXR_APP_ID)] : []),
   ...(core.config.CURRENCYAPI_KEY ? [new CurrencyApiProvider(core.config.CURRENCYAPI_KEY)] : []),
 ];
+const tripDefaults = new DrizzleTripDefaults(core.db);
 const expensesService = new ExpensesService(core.db, new DrizzleExpenseRepo(core.db), {
   providers: fxProviders,
   cache: new RedisCache(redis),
-  tripDefaults: new DrizzleTripDefaults(core.db),
+  tripDefaults,
   onWarn: (event, detail) => core.logger.warn({ event, detail }, "fx"),
 });
 const settlementsService = new SettlementsService(core.db, new DrizzleSettlementRepo(core.db));
@@ -83,6 +84,7 @@ const v1 = buildV1App({
   membersService,
   expensesService,
   settlementsService,
+  tripDefaults,
   resolver: authResolver(auth),
   emailOf,
   memberLookup: (t, u) => memberRepo.findMembership(t, u),

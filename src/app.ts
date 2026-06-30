@@ -11,6 +11,7 @@ import type { TripsService } from "./modules/trips/trips.service.ts";
 import type { MembersService } from "./modules/members/members.service.ts";
 import type { ExpensesService } from "./modules/expenses/expenses.service.ts";
 import type { SettlementsService } from "./modules/settlements/settlements.service.ts";
+import type { TripDefaultsPort } from "./modules/fx/fx.types.ts";
 import type { IdempotencyStore } from "./core/idempotency.ts";
 import type { SessionResolver, MembershipLookup } from "./core/guards.ts";
 
@@ -19,6 +20,7 @@ export interface V1Deps {
   membersService: MembersService;
   expensesService: ExpensesService<Record<string, unknown>>;
   settlementsService: SettlementsService<Record<string, unknown>>;
+  tripDefaults: TripDefaultsPort;
   resolver: SessionResolver;
   emailOf: (userId: string) => Promise<string>;
   memberLookup: MembershipLookup;
@@ -37,7 +39,7 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
     cors({
       origin: deps.webOrigins,
       credentials: true,
-      allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+      allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], // PUT=fx-defaults(finding #1 pass2)
       allowHeaders: ["Content-Type", "Idempotency-Key"], // Idempotency-Key preflight 허용(finding #5 pass1)
     }),
   );
@@ -59,6 +61,7 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
     resolver: deps.resolver,
     memberLookup: deps.memberLookup,
     idempotencyStore: deps.idempotencyStore,
+    tripDefaults: deps.tripDefaults,
   });
   registerSettlementRoutes(v1, {
     settlementsService: deps.settlementsService,

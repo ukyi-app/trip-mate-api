@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { startDb, mkUser, mkTrip, type Ctx } from "../../../tests/db/helpers.ts";
+import { startDb, mkUser, mkTrip, mkMember, type Ctx } from "../../../tests/db/helpers.ts";
 import { createApp } from "../../core/openapi.ts";
 import { registerErrorFilter } from "../../core/errors.ts";
 import { DrizzleMemberRepo } from "../members/members.repo.ts";
@@ -47,6 +47,7 @@ function appFor(userId: string) {
     resolver,
     memberLookup,
     idempotencyStore: null,
+    tripDefaults: new DrizzleTripDefaults(ctx.db),
   });
   return app;
 }
@@ -153,5 +154,44 @@ describe("expenses 라우트", () => {
     await ctx.sql`update trips set settlement_status='finalized' where id=${trip}`;
     const res = await postExp(appFor(u), trip, memberId);
     expect(res.status).toBe(409);
+  });
+  it("PUT fx-defaults(admin) → 200, 이후 JPY expense가 trip_default로 해석", async () => {
+    const { u, trip, memberId } = await setup();
+    const app = appFor(u);
+    const put = await app.request(`/trips/${trip}/fx-defaults`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ base_currency: "JPY", settlement_currency: "KRW", rate: "9.5" }),
+    });
+    expect(put.status).toBe(200);
+    const res = await app.request(`/trips/${trip}/expenses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body(memberId, { local_currency: "JPY" })),
+    });
+    expect([200, 201]).toContain(res.status); // provider 없음·manual 없음인데 trip_default 9.5로 해석
+  });
+  it("비-admin 멤버 PUT fx-defaults → 403", async () => {
+    const { trip } = await setup();
+    const u2 = await mkUser(ctx.sql);
+    await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+    const res = await appFor(u2).request(`/trips/${trip}/fx-defaults`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ base_currency: "JPY", settlement_currency: "KRW", rate: "9.5" }),
+    });
+    expect(res.status).toBe(403);
+  });
+  it("fx-defaults: 0·round-to-zero·oversize rate → 422(정규화, finding #3 pass1)", async () => {
+    const { u, trip } = await setup();
+    const app = appFor(u);
+    for (const rate of ["0", "0.00000000001", "99999999999"]) {
+      const res = await app.request(`/trips/${trip}/fx-defaults`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ base_currency: "JPY", settlement_currency: "KRW", rate }),
+      });
+      expect(res.status).toBe(422);
+    }
   });
 });

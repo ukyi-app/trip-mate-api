@@ -6,12 +6,16 @@ import {
   type MembershipLookup,
 } from "../../core/guards.ts";
 import { errorResponses } from "../../core/http.ts";
+import { ValidationError } from "../../core/errors.ts";
 import { idempotency, type IdempotencyStore } from "../../core/idempotency.ts";
+import { parsePositiveRate } from "../fx/domain/convert.ts";
+import type { TripDefaultsPort } from "../fx/fx.types.ts";
 import {
   expenseResponseSchema,
   createExpenseSchema,
   updateExpenseSchema,
   previewResponseSchema,
+  fxDefaultRequestSchema,
 } from "./expenses.schema.ts";
 import type { ExpensesService } from "./expenses.service.ts";
 import type { ExpenseRow } from "./expenses.repo.ts";
@@ -21,6 +25,7 @@ interface Deps {
   resolver: SessionResolver;
   memberLookup: MembershipLookup;
   idempotencyStore: IdempotencyStore | null; // null이면 멱등 미들웨어 생략(테스트)
+  tripDefaults: TripDefaultsPort;
 }
 const ok = <S extends z.ZodTypeAny>(schema: S) => ({
   200: { description: "ok", content: { "application/json": { schema } } },
@@ -56,6 +61,7 @@ function toResponse(row: ExpenseRow): z.infer<typeof expenseResponseSchema> {
 export function registerExpenseRoutes(app: OpenAPIHono, deps: Deps): void {
   const auth = requireAuth(deps.resolver);
   const member = requireTripMember(deps.memberLookup);
+  const admin = requireTripMember(deps.memberLookup, "admin");
   const idem = deps.idempotencyStore ? [idempotency(deps.idempotencyStore)] : []; // scope=c.req.path(실 tripId)
 
   app.openapi(
@@ -187,6 +193,36 @@ export function registerExpenseRoutes(app: OpenAPIHono, deps: Deps): void {
         memberId: c.get("membership").id,
       });
       return c.json({ id: expenseId, deleted: true }, 200);
+    },
+  );
+
+  // trip_default 환율 설정(admin). rate 정규화(10dp·>0·<10^10) 후 upsert(finding #3 pass1).
+  app.openapi(
+    createRoute({
+      method: "put",
+      path: "/trips/{tripId}/fx-defaults",
+      security: [{ cookieAuth: [] }],
+      middleware: [auth, admin],
+      request: {
+        params: z.object({ tripId: z.string().uuid() }),
+        body: jsonBody(fxDefaultRequestSchema),
+      },
+      responses: {
+        ...ok(z.object({ ok: z.boolean() }).openapi("FxDefaultSet")),
+        ...errorResponses(403, 404, 422),
+      },
+    }),
+    async (c) => {
+      const tripId = c.req.valid("param").tripId;
+      const { base_currency, settlement_currency, rate } = c.req.valid("json");
+      let norm: string;
+      try {
+        norm = parsePositiveRate(rate).toFixed(10); // ≤0·round-to-zero·>10^10 → throw
+      } catch {
+        throw new ValidationError("invalid rate (≤0 or out of range)", { rate });
+      }
+      await deps.tripDefaults.upsertRate(tripId, base_currency, settlement_currency, norm);
+      return c.json({ ok: true }, 200);
     },
   );
 }

@@ -26,6 +26,7 @@ function v1For(userId: string) {
     membersService: members,
     expensesService: {} as never, // 본 테스트는 trips mutation만 검증 → expenses 핸들러 미실행
     settlementsService: {} as never,
+    tripDefaults: {} as never,
     resolver,
     emailOf: async () => "a@example.com",
     memberLookup: (t, u) => new DrizzleMemberRepo(ctx.db).findMembership(t, u),
