@@ -1,4 +1,4 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["**/*.md", "src/db/migrations/**"]
+  "ignorePatterns": ["**/*.md", "src/db/migrations/**", "openapi.json"]
 }

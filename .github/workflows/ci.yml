@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: lint·fmt·typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+
+  test:
+    name: test (testcontainers)
+    runs-on: ubuntu-latest # Docker 데몬 내장 → testcontainers(PG16·redis:7) 동작
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+
+  openapi-drift:
+    name: openapi.json drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # gen:openapi는 무-IO(stub deps) → env 불요. 재생성 후 커밋본과 diff.
+      - run: bun run gen:openapi
+      - name: 커밋된 openapi.json이 코드와 일치하는지 확인
+        run: |
+          if ! git diff --exit-code openapi.json; then
+            echo "::error::openapi.json이 코드와 불일치합니다. 'bun run gen:openapi' 후 커밋하세요."
+            exit 1
+          fi
+
+  publish-openapi:
+    name: openapi.json → R2 발행
+    needs: [check, test, openapi-drift]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run gen:openapi
+      - name: R2 업로드(S3 호환, secret 게이트)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$R2_ENDPOINT" ] || [ -z "$R2_BUCKET" ]; then
+            echo "R2 secrets 미설정 — 발행 스킵(계약은 레포 openapi.json이 SSOT)."
+            exit 0
+          fi
+          aws s3 cp openapi.json "s3://$R2_BUCKET/openapi.json" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --content-type application/json \
+            --cache-control "no-cache"
+          echo "발행 완료: $R2_BUCKET/openapi.json"

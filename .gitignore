@@ -9,5 +9,4 @@ coverage/
 
 .worktrees/
 
-# 생성물(gen:openapi)
-openapi.json
+# openapi.json은 계약 SSOT로 커밋(drift CI가 gen:openapi 재생성과 대조). 생성물이지만 추적함.
