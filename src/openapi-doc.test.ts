@@ -39,4 +39,11 @@ describe("OpenAPI 스펙 계약", () => {
   it("Problem 스키마 컴포넌트 등록(RFC 9457)", () => {
     expect(doc().components?.schemas?.Problem).toBeDefined();
   });
+  it("앱이 /v1/openapi.json 으로 스펙 직접 서빙(homelab self-host, 인증 불요)", async () => {
+    const res = await docApp().request("/v1/openapi.json");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { openapi?: string; paths?: Record<string, unknown> };
+    expect(body.openapi).toBe("3.1.0");
+    expect(Object.keys(body.paths ?? {}).some((p) => p.includes("/v1/trips"))).toBe(true);
+  });
 });

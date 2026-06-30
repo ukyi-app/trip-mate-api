@@ -69,5 +69,16 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
     memberLookup: deps.memberLookup,
     idempotencyStore: deps.idempotencyStore,
   });
+  // 계약 자체 서빙(homelab self-host) — 앱이 OpenAPI 스펙을 /v1/openapi.json 으로 노출.
+  // plain route(스펙 미포함)·GET(CSRF bypass)·인증 없음. 1회 생성 후 캐시(gen:openapi와 동일 구성).
+  let cachedDoc: ReturnType<typeof v1.getOpenAPI31Document> | undefined;
+  v1.get("/openapi.json", (c) =>
+    c.json(
+      (cachedDoc ??= v1.getOpenAPI31Document({
+        openapi: "3.1.0",
+        info: { title: "trip-mate API", version: "1.0.0" },
+      })),
+    ),
+  );
   return v1;
 }
