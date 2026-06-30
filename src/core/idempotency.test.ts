@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import { startDb, type Ctx } from "../../tests/db/helpers.ts";
-import { idempotency } from "./idempotency.ts";
+import { idempotency, sweepExpiredIdempotency } from "./idempotency.ts";
 import { registerErrorFilter, ValidationError } from "./errors.ts";
 
 let ctx: Ctx;
@@ -93,5 +93,31 @@ describe("idempotency 미들웨어(DB)", () => {
     expect((await post(a, "/x", "ek", { n: 1 })).status).toBe(201);
     await ctx.sql`update idempotency_keys set expires_at = now() - interval '1 second' where scope_key=${"u-exp:/x:ek"}`;
     expect((await post(a, "/x", "ek", { n: 1 })).status).toBe(201); // 만료 → 재처리
+  });
+  it("과대 idempotency-key → 422(text PK 한도 초과 500 차단)", async () => {
+    const a = app("u-long");
+    expect((await post(a, "/x", "x".repeat(201), { n: 1 })).status).toBe(422);
+  });
+  it("완료 기록은 보존 TTL로 연장(lock 임대보다 김)", async () => {
+    const a = app("u-ext");
+    expect((await post(a, "/x", "extk", { n: 1 })).status).toBe(201);
+    const far = await ctx.sql<{ far: boolean }[]>`
+      select (expires_at > now() + interval '1 hour') as far
+      from idempotency_keys where scope_key=${"u-ext:/x:extk"}`;
+    expect(far[0]!.far).toBe(true); // 보존 TTL(24h) 적용 — 짧은 임대(5m) 아님
+  });
+  it("sweepExpiredIdempotency: 만료 행만 삭제", async () => {
+    await ctx.sql`insert into idempotency_keys (scope_key, request_hash, status, response_body, expires_at)
+      values ('sweep:exp', 'h', 200, '{}', now() - interval '1 second')`;
+    await ctx.sql`insert into idempotency_keys (scope_key, request_hash, status, response_body, expires_at)
+      values ('sweep:live', 'h', 200, '{}', now() + interval '1 hour')`;
+    const n = await sweepExpiredIdempotency(ctx.db);
+    expect(n).toBeGreaterThanOrEqual(1);
+    expect(
+      (await ctx.sql`select 1 from idempotency_keys where scope_key='sweep:live'`).length,
+    ).toBe(1);
+    expect((await ctx.sql`select 1 from idempotency_keys where scope_key='sweep:exp'`).length).toBe(
+      0,
+    );
   });
 });

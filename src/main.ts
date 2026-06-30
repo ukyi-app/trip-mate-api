@@ -21,6 +21,7 @@ import { DrizzleTripDefaults } from "./modules/fx/trip-defaults.repo.ts";
 import { OxrProvider } from "./modules/fx/provider/oxr.ts";
 import { CurrencyApiProvider } from "./modules/fx/provider/currencyapi.ts";
 import { buildV1App } from "./app.ts";
+import { sweepExpiredIdempotency } from "./core/idempotency.ts";
 
 const core = createCore();
 const app = createApp();
@@ -94,5 +95,12 @@ const v1 = buildV1App({
 app.route("/", v1); // v1 라우트는 /v1/... (basePath)
 
 app.get("/health", (c) => c.json({ status: "ok" }));
+
+// 만료 멱등 행 주기 정리(Redis EX 자동 eviction 대체). unref로 단독 프로세스 유지 안 함.
+setInterval(() => {
+  void sweepExpiredIdempotency(core.db).catch((err) =>
+    core.logger.warn({ err }, "idempotency sweep failed"),
+  );
+}, 3_600_000).unref();
 
 export default { port: 3000, fetch: app.fetch };
