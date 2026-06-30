@@ -26,16 +26,14 @@ import { sweepExpiredIdempotency } from "./core/idempotency.ts";
 import { runMigrations } from "./db/migrate.ts";
 
 const core = createCore();
-// boot self-migrate(homelab 계약) — 서빙 전 멱등 마이그레이션. 직결 URL 우선, 실패 시 부팅 중단(fail-closed).
-await runMigrations(core.config.MIGRATE_DATABASE_URL ?? core.config.DATABASE_URL);
+// boot self-migrate(homelab 계약) — 서빙 전 멱등 마이그레이션. 직결 URL, 실패 시 부팅 중단(fail-closed).
+await runMigrations(core.migrateUrl);
 
 const app = createApp();
 // 루트 앱 onError — app.route("/", v1)로 마운트하면 에러는 루트 onError로 전파(Hono).
 // 누락 시 v1의 모든 AppError(403/404/409/422-throw)가 500이 된다(마운트 합성 버그). v1의 필터는 standalone(테스트)용.
 registerErrorFilter(app);
-const redisUrl = core.config.REDIS_URL ?? core.config.VALKEY_URL; // 계약 키 우선, 로컬 별칭 폴백
-if (!redisUrl) throw new Error("REDIS_URL(또는 VALKEY_URL) 필요");
-const redis = new IoRedis(redisUrl); // auth secondaryStorage·FX 캐시(멱등은 DB로 이전)
+const redis = new IoRedis(core.redisUrl); // auth secondaryStorage·FX 캐시(멱등은 DB로 이전)
 
 // auth 싱글톤은 컴포지션 루트에서 구성: db·redis·시크릿·origin 주입.
 const auth = createAuth({

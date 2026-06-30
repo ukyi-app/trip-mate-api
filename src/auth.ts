@@ -16,7 +16,7 @@ export interface AuthDeps {
 }
 
 /** 완전 DI 팩토리 — top-level env read·IO·싱글톤 없음(finding #2 pass2). 테스트는 fake만 주입,
- *  운영 싱글톤은 main.ts 컴포지션 루트가 구성(`new IoRedis(env.VALKEY_URL)` 등은 거기서). */
+ *  운영 싱글톤은 main.ts 컴포지션 루트가 구성(`new IoRedis(env.TRIP_MATE_REDIS_URL)` 등은 거기서). */
 export function createAuth(deps: AuthDeps) {
   const storage = new RedisSecondaryStorage(deps.redis);
   return betterAuth({
