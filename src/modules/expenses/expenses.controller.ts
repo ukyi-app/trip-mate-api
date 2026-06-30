@@ -11,6 +11,7 @@ import {
   expenseResponseSchema,
   createExpenseSchema,
   updateExpenseSchema,
+  previewResponseSchema,
 } from "./expenses.schema.ts";
 import type { ExpensesService } from "./expenses.service.ts";
 import type { ExpenseRow } from "./expenses.repo.ts";
@@ -77,6 +78,26 @@ export function registerExpenseRoutes(app: OpenAPIHono, deps: Deps): void {
       );
       return c.json(toResponse(row), 200);
     },
+  );
+
+  // 미영속 미리보기(FX·균등분할). 멱등 없음, 영속 없음.
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/trips/{tripId}/expenses/preview",
+      security: [{ cookieAuth: [] }],
+      middleware: [auth, member],
+      request: {
+        params: z.object({ tripId: z.string().uuid() }),
+        body: jsonBody(createExpenseSchema),
+      },
+      responses: { ...ok(previewResponseSchema), ...errorResponses(403, 404, 422) },
+    }),
+    async (c) =>
+      c.json(
+        await deps.expensesService.previewExpense(c.req.valid("param").tripId, c.req.valid("json")),
+        200,
+      ),
   );
 
   app.openapi(

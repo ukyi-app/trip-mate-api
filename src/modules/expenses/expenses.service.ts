@@ -1,6 +1,7 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { trips } from "../../db/schema/trips.ts";
+import { tripMembers } from "../../db/schema/members.ts";
 import { currencies } from "../../db/schema/currencies.ts";
 import {
   ConflictError,
@@ -10,9 +11,10 @@ import {
 } from "../../core/errors.ts";
 import { resolveFx, type FxDeps } from "../fx/fx.service.ts";
 import { isResolved, type FxInput, type FxResult } from "../fx/fx.types.ts";
-import { minor, type CurrencyCode } from "../../core/money.ts";
+import { splitExpense } from "../settlements/domain/compute.ts";
+import { minor, type CurrencyCode, type MemberId } from "../../core/money.ts";
 import type { DrizzleExpenseRepo, ExpenseRow } from "./expenses.repo.ts";
-import type { CreateExpense, UpdateExpense } from "./expenses.schema.ts";
+import type { CreateExpense, UpdateExpense, PreviewResponse } from "./expenses.schema.ts";
 
 export interface ExpenseActor {
   memberId: string;
@@ -184,6 +186,76 @@ export class ExpensesService<T extends Record<string, unknown>> {
         ? new Date(fx.exchange_rate_fetched_at)
         : null,
     });
+  }
+
+  /** 미영속 미리보기: FX 계산 + 균등분할. needsManual은 구조화 응답(설계 §3, finding #1 pass1). */
+  async previewExpense(tripId: string, input: CreateExpense): Promise<PreviewResponse> {
+    const trip = await this.assertTripOpen(tripId);
+    // 멤버십 검증 — 미영속이라 composite FK 미실행(finding #2 pass2). 입력 member_id가 전부 trip 멤버여야.
+    const ids = [...new Set([input.paid_by_member_id, ...input.participant_member_ids])];
+    const found = await this.db
+      .select({ id: tripMembers.id })
+      .from(tripMembers)
+      .where(and(eq(tripMembers.trip_id, tripId), inArray(tripMembers.id, ids)));
+    if (found.length !== ids.length)
+      throw new ValidationError("unknown member in trip", { tripId });
+
+    let settlement_amount: bigint;
+    let exchange_rate: string | null;
+    let exchange_rate_source: PreviewResponse["exchange_rate_source"];
+    let settlement_amount_source: "converted" | "card_billed";
+    let fallbackWarning = false;
+    if (input.card_billed_settlement_amount !== undefined) {
+      settlement_amount = BigInt(input.card_billed_settlement_amount);
+      exchange_rate = null;
+      exchange_rate_source = null;
+      settlement_amount_source = "card_billed";
+    } else {
+      const fx = await this.resolveExpenseFx({
+        tripId,
+        tz: trip.tz,
+        settle: trip.settle,
+        local_amount: input.local_amount,
+        local_currency: input.local_currency,
+        spent_at: input.spent_at,
+        ...(input.manualRate !== undefined ? { manualRate: input.manualRate } : {}),
+      });
+      if (!isResolved(fx)) {
+        return {
+          needs_manual: true,
+          settlement_amount: null,
+          settlement_currency: trip.settle,
+          exchange_rate: null,
+          exchange_rate_source: null,
+          settlement_amount_source: null,
+          fallbackWarning: false,
+          per_member: [],
+        };
+      }
+      settlement_amount = fx.settlement_amount;
+      exchange_rate = fx.exchange_rate;
+      exchange_rate_source = fx.exchange_rate_source;
+      settlement_amount_source = "converted";
+      fallbackWarning = fx.fallbackWarning;
+    }
+    const split = splitExpense(
+      minor(settlement_amount),
+      input.participant_member_ids as MemberId[],
+    );
+    const per_member = [...split].map(([m, s]) => ({
+      member_id: m as string,
+      share: s.toString(),
+    }));
+    return {
+      needs_manual: false,
+      settlement_amount: settlement_amount.toString(),
+      settlement_currency: trip.settle,
+      exchange_rate,
+      exchange_rate_source,
+      settlement_amount_source,
+      fallbackWarning,
+      per_member,
+    };
   }
 
   async listExpenses(tripId: string, limit: number): Promise<ExpenseRow[]> {

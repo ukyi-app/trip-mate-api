@@ -69,6 +69,29 @@ const postExp = async (app: ReturnType<typeof appFor>, trip: string, memberId: s
   });
 
 describe("expenses 라우트", () => {
+  it("preview: identity → per_member 균등분할(미영속)", async () => {
+    const { u, trip, memberId } = await setup();
+    const res = await appFor(u).request(`/trips/${trip}/expenses/preview`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body(memberId)),
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { per_member: unknown[] }).per_member.length).toBe(1);
+    expect(
+      ((await (await appFor(u).request(`/trips/${trip}/expenses`)).json()) as unknown[]).length,
+    ).toBe(0); // 미영속
+  });
+  it("preview: 미지/타-trip member_id → 422(멤버십 검증, finding #2 pass2)", async () => {
+    const { u, trip } = await setup();
+    const outsider = "11111111-1111-4111-8111-111111111111";
+    const res = await appFor(u).request(`/trips/${trip}/expenses/preview`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body(outsider)),
+    });
+    expect(res.status).toBe(422);
+  });
   it("POST → 201, GET 목록 1개, GET 상세, 돈 string 왕복", async () => {
     const { u, trip, memberId } = await setup();
     const app = appFor(u);
