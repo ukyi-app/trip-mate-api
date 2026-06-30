@@ -15,6 +15,13 @@
       "when": 1782718481251,
       "tag": "0001_late_grandmaster",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782789476198,
+      "tag": "0002_fuzzy_gideon",
+      "breakpoints": true
     }
   ]
 }

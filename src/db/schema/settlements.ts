@@ -96,6 +96,8 @@ export const settlementTransfers = pgTable(
       t.from_member_id,
       t.to_member_id,
     ),
+    // settlement_transfer_events 복합 FK 타깃(이벤트가 transfer의 trip/settlement에서 발산 못 하도록)
+    uniqueIndex("uq_transfer_trip_settlement_id").on(t.trip_id, t.settlement_id, t.id),
     foreignKey({
       columns: [t.trip_id, t.settlement_id],
       foreignColumns: [settlements.trip_id, settlements.id],
@@ -146,5 +148,38 @@ export const settlementMemberSummaries = pgTable(
     }),
     index("ix_summary_settlement").on(t.settlement_id),
     index("ix_summary_member").on(t.member_id),
+  ],
+);
+
+// 결제 이벤트 감사(append-only): mark-paid/unpaid 전이 기록. 설계 §3.
+// 이력: 마이그레이션 이후 전이 + 기존 paid는 백필(0002 마이그레이션). 정렬은 seq(identity)로 인과 안전.
+export const settlementTransferEvents = pgTable(
+  "settlement_transfer_events",
+  {
+    id: pk(),
+    seq: bigint({ mode: "number" }).generatedAlwaysAsIdentity(), // 단조 정렬키(now() 역전 차단)
+    transfer_id: uuid().notNull(),
+    trip_id: uuid().notNull(),
+    settlement_id: uuid().notNull(),
+    event_type: text().notNull(), // paid | unpaid
+    actor_member_id: uuid().notNull(),
+    created_at: timestamp({ withTimezone: true }).defaultNow().notNull(), // 표시용(정렬은 seq)
+  },
+  (t) => [
+    check("transfer_event_type_check", sql`${t.event_type} IN ('paid','unpaid')`),
+    // (trip_id, settlement_id, transfer_id)가 실제 transfer와 일치하도록 강제(발산 차단)
+    foreignKey({
+      columns: [t.trip_id, t.settlement_id, t.transfer_id],
+      foreignColumns: [
+        settlementTransfers.trip_id,
+        settlementTransfers.settlement_id,
+        settlementTransfers.id,
+      ],
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.trip_id, t.actor_member_id],
+      foreignColumns: [tripMembers.trip_id, tripMembers.id],
+    }),
+    index("ix_transfer_event").on(t.transfer_id, t.seq.desc()),
   ],
 );

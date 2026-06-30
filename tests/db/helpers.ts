@@ -260,3 +260,48 @@ export async function insertFxDefaultNonPositiveRate(ctx: Ctx) {
     [trip],
   ); // fx_default_rate_pos → 23514
 }
+
+// ── settlement_transfer_events (reversal/history 슬라이스) ───────────────
+async function transferRow(ctx: Ctx) {
+  const { trip, m1, m2, settlement } = await transferBase(ctx);
+  const tid = randomUUID();
+  await ctx.sql`insert into settlement_transfers (id, settlement_id, trip_id, basis, currency, from_member_id, to_member_id, amount)
+    values (${tid}, ${settlement}, ${trip}, 'settlement', 'KRW', ${m2}, ${m1}, 100)`;
+  return { trip, m1, m2, settlement, tid };
+}
+
+export async function insertBadTransferEvent(ctx: Ctx) {
+  const { trip, m1, settlement, tid } = await transferRow(ctx);
+  await ctx.sql`insert into settlement_transfer_events (transfer_id, trip_id, settlement_id, event_type, actor_member_id)
+    values (${tid}, ${trip}, ${settlement}, 'bogus', ${m1})`; // transfer_event_type_check
+}
+export async function insertCrossTripTransferEventActor(ctx: Ctx) {
+  const { trip, settlement, tid } = await transferRow(ctx);
+  const uX = await mkUser(ctx.sql);
+  const tripX = await mkTrip(ctx.sql, uX);
+  const mX = await mkMember(ctx.sql, tripX, { userId: uX, role: "admin", status: "joined" });
+  await ctx.sql`insert into settlement_transfer_events (transfer_id, trip_id, settlement_id, event_type, actor_member_id)
+    values (${tid}, ${trip}, ${settlement}, 'paid', ${mX})`; // (trip_id, actor)→trip_members 23503
+}
+export async function insertMismatchedTransferEvent(ctx: Ctx) {
+  const { trip, m1, tid } = await transferRow(ctx);
+  await ctx.sql`insert into settlement_transfer_events (transfer_id, trip_id, settlement_id, event_type, actor_member_id)
+    values (${tid}, ${trip}, ${randomUUID()}, 'paid', ${m1})`; // (trip,settlement,transfer)↛settlement_transfers 23503
+}
+
+// 마이그레이션 백필 INSERT와 동일(드리프트 시 양쪽 함께 수정)
+export const BACKFILL_SQL = `INSERT INTO "settlement_transfer_events" ("transfer_id", "trip_id", "settlement_id", "event_type", "actor_member_id", "created_at")
+SELECT st."id", st."trip_id", st."settlement_id", 'paid', st."marked_by_member_id", st."paid_at"
+FROM "settlement_transfers" st
+WHERE st."payment_status" = 'paid' AND st."marked_by_member_id" IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM "settlement_transfer_events" e WHERE e."transfer_id" = st."id" AND e."event_type" = 'paid')`;
+
+export async function seedPaidTransferWithoutEvent(
+  ctx: Ctx,
+): Promise<{ tid: string; actor: string }> {
+  const { trip, m1, m2, settlement } = await transferBase(ctx);
+  const tid = randomUUID();
+  await ctx.sql`insert into settlement_transfers (id, settlement_id, trip_id, basis, currency, from_member_id, to_member_id, amount, payment_status, paid_at, marked_by_member_id)
+    values (${tid}, ${settlement}, ${trip}, 'settlement', 'KRW', ${m2}, ${m1}, 200, 'paid', now(), ${m1})`;
+  return { tid, actor: m1 };
+}

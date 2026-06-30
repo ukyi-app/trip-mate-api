@@ -22,6 +22,11 @@ import {
   insertDuplicateFxDefault,
   insertFxDefaultBadCurrency,
   insertFxDefaultNonPositiveRate,
+  insertBadTransferEvent,
+  insertCrossTripTransferEventActor,
+  insertMismatchedTransferEvent,
+  seedPaidTransferWithoutEvent,
+  BACKFILL_SQL,
 } from "./helpers.ts";
 
 let ctx: Ctx;
@@ -89,4 +94,22 @@ describe("DB 제약 (negative — 단일 위반만 주입, 유효 fixture 먼저
     expectViolation(() => insertFxDefaultBadCurrency(ctx), "23503"));
   it("trip_fx_defaults rate<=0 거부", () =>
     expectViolation(() => insertFxDefaultNonPositiveRate(ctx), "23514", "fx_default_rate_pos"));
+
+  it("settlement_transfer_events: 잘못된 event_type 거부", () =>
+    expectViolation(() => insertBadTransferEvent(ctx), "23514", "transfer_event_type_check"));
+  it("settlement_transfer_events: 타 trip actor 복합 FK 거부", () =>
+    expectViolation(() => insertCrossTripTransferEventActor(ctx), "23503"));
+  it("settlement_transfer_events: transfer/settlement 불일치 복합 FK 거부", () =>
+    expectViolation(() => insertMismatchedTransferEvent(ctx), "23503"));
+
+  it("백필: 기존 paid transfer가 'paid' 이벤트로 채워짐(멱등)", async () => {
+    const { tid, actor } = await seedPaidTransferWithoutEvent(ctx);
+    await ctx.sql.unsafe(BACKFILL_SQL);
+    await ctx.sql.unsafe(BACKFILL_SQL); // 2회차 멱등 — 중복 없음
+    const ev = await ctx.sql<{ event_type: string; actor_member_id: string }[]>`
+      select event_type, actor_member_id from settlement_transfer_events where transfer_id=${tid}`;
+    expect(ev.length).toBe(1);
+    expect(ev[0]!.event_type).toBe("paid");
+    expect(ev[0]!.actor_member_id).toBe(actor);
+  });
 });
