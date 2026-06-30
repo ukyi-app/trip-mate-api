@@ -24,7 +24,7 @@ import { buildV1App } from "./app.ts";
 
 const core = createCore();
 const app = createApp();
-const redis = new IoRedis(core.config.VALKEY_URL); // auth secondaryStorage·FX 캐시·Idempotency 공용
+const redis = new IoRedis(core.config.VALKEY_URL); // auth secondaryStorage·FX 캐시(멱등은 DB로 이전)
 
 // auth 싱글톤은 컴포지션 루트에서 구성: db·redis·시크릿·origin 주입.
 const auth = createAuth({
@@ -88,7 +88,7 @@ const v1 = buildV1App({
   resolver: authResolver(auth),
   emailOf,
   memberLookup: (t, u) => memberRepo.findMembership(t, u),
-  idempotencyStore: { redis, ttlSeconds: 86_400 },
+  idempotencyStore: { db: core.db, ttlSeconds: 86_400 }, // DB-durable(§5) — Redis는 auth·FX캐시 전용
   webOrigins: core.config.WEB_ORIGINS,
 });
 app.route("/", v1); // v1 라우트는 /v1/... (basePath)
