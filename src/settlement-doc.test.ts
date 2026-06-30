@@ -33,4 +33,15 @@ describe("settlement OpenAPI 계약", () => {
     expect(schemas.Settlement).toBeDefined();
     expect(schemas.FinalizeSettlement).toBeDefined();
   });
+  it("reversal/history 경로·스키마 등록", () => {
+    const d = doc();
+    const paths = Object.keys(d.paths ?? {});
+    expect(paths.some((p) => p.endsWith("/transfers/{transferId}/mark-unpaid"))).toBe(true);
+    expect(paths.some((p) => p.endsWith("/settlement/history"))).toBe(true);
+    expect(paths.some((p) => p.endsWith("/transfers/{transferId}/events"))).toBe(true);
+    const schemas = d.components?.schemas ?? {};
+    expect(schemas.SettlementHistoryEntry).toBeDefined();
+    expect(schemas.TransferEvent).toBeDefined();
+    expect(schemas.MarkUnpaidResult).toBeDefined();
+  });
 });
