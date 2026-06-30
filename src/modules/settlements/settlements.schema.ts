@@ -56,5 +56,27 @@ export const finalizeRequestSchema = z
   .object({ seen_expense_versions: z.array(seenVersionSchema).min(0) })
   .openapi("FinalizeSettlement");
 
+// 정산 버전이력 헤더(active+superseded, 최신순). 설계 §4.3.
+export const settlementHistoryEntrySchema = z
+  .object({
+    version: z.number().int(),
+    status: z.enum(["active", "superseded"]),
+    finalized_by_member_id: z.string().uuid(),
+    finalized_at: z.string(),
+    settlement_total: z.string().regex(/^\d+$/),
+  })
+  .openapi("SettlementHistoryEntry");
+
+// transfer 결제 이벤트 로그(최신순). 설계 §4.4.
+export const transferEventSchema = z
+  .object({
+    event_type: z.enum(["paid", "unpaid"]),
+    actor_member_id: z.string().uuid(),
+    created_at: z.string(),
+  })
+  .openapi("TransferEvent");
+
 export type SettlementResponse = z.infer<typeof settlementResponseSchema>;
 export type FinalizeRequest = z.infer<typeof finalizeRequestSchema>;
+export type SettlementHistoryEntry = z.infer<typeof settlementHistoryEntrySchema>;
+export type TransferEventEntry = z.infer<typeof transferEventSchema>;
