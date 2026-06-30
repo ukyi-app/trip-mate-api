@@ -26,7 +26,7 @@
 ## B. owner 실행 절차
 
 ### 0) 앱 레포 `ukyi-app/trip-mate-api`
-이 레포를 `ukyi-app/trip-mate-api`로 푸시(템플릿 `ukyi-app/homelab-app-template` 관례 정합: `.app-config.yml`·`Dockerfile` 준비됨). main push → `reusable-app-build.yaml@main`이 arm64 이미지를 GHCR에 push(digest 핀).
+이 레포를 `ukyi-app/trip-mate-api`로 푸시. 템플릿(`ukyi-app/homelab-app-template`) 관례 정합 완료: `.app-config.yml`·`Dockerfile`·`.github/workflows/release.yaml`(빌드 트리거)·`tools/seal-secret.mts`+`tools/sealed-secrets-cert.pem`(봉인 도구) 모두 in-repo. main push → `release.yaml`이 `reusable-app-build.yaml@main` 호출 → arm64 이미지 GHCR push(digest 핀).
 
 ### 1) DB 프로비전 — homelab 디스패처 `create-database` (**name=`trip-mate`**)
 > ⚠️ 이름은 반드시 `trip-mate`(앱이 `TRIP_MATE_*`를 읽음). `trip-mate-api`로 만들면 키가 `TRIP_MATE_API_*`가 되어 불일치. 확장은 선택하지 않음(앱은 확장 불요 — 별도 안내 참조).
@@ -38,7 +38,7 @@
 Valkey 인스턴스(ns `cache`) 생성(PR). 산출 `cache-trip-mate-conn`(ns `prod`)에 **`TRIP_MATE_REDIS_URL`** 키. 접속 `trip-mate.cache.svc.cluster.local:6379`.
 
 ### 3) 앱 시크릿 봉인(`trip-mate-api-secrets`, ns `prod`)
-앱 레포에서 `.env`→`pnpm secret:seal`로 `trip-mate-api-secrets.sealed.yaml` 생성. **DB/Redis URL은 넣지 않는다**(1·2단계 conn 핸들이 envFrom로 공급). 이 시크릿엔 앱 설정만:
+아래 키만 담은 `.env` 작성 후 `bun run secret:seal`(=`tools/seal-secret.mts`, 평문은 kubeseal stdin으로만 흐름) → `deploy/trip-mate-api-secrets.sealed.yaml` 생성. `kubeseal` CLI 필요. **DB/Redis URL은 넣지 않는다**(1·2단계 conn 핸들이 envFrom로 공급). 이 시크릿엔 앱 설정만:
 - `BETTER_AUTH_SECRET`(≥32자)·`BETTER_AUTH_URL`·`WEB_ORIGINS`·`USE_SECURE_COOKIES=true`·`INVITE_TOKEN_TTL_HOURS` (+선택 `GOOGLE_*`/`OXR_APP_ID`/`CURRENCYAPI_KEY`)
 
 ### 4) 앱 온보딩 — 디스패처 `create-app` (app=`trip-mate-api`)
