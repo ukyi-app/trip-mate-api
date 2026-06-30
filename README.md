@@ -12,9 +12,9 @@ Bun · Hono + [@hono/zod-openapi](https://github.com/honojs/middleware)(Zod v4) 
 
 ```bash
 bun install
-cp .env.example .env          # DATABASE_URL·VALKEY_URL·BETTER_AUTH_SECRET 등
-bun run db:migrate            # 스키마 마이그레이션
-bun run dev                   # 개발 서버(:3000)
+cp .env.example .env          # 앱 키(BETTER_AUTH_SECRET·BETTER_AUTH_URL·WEB_ORIGINS)
+# 로컬 오버라이드는 .env.local: TRIP_MATE_DATABASE_URL·TRIP_MATE_REDIS_URL·BETTER_AUTH_URL=http://localhost:8080·USE_SECURE_COOKIES=false
+bun run dev                   # 부팅 시 self-migrate 후 :8080(PORT)
 
 bun run check                 # oxlint + oxfmt + tsc
 bun run test                  # vitest(testcontainers: PG16·redis:7 — Docker 필요)
@@ -25,7 +25,11 @@ bun run gen:openapi           # openapi.json 재생성(무-IO)
 
 `/v1` 하위로 trips·members/invites·expenses(+FX)·settlement 라우트를 제공한다. 인증은 `/api/auth/*`(Better Auth, cookie 세션).
 
-OpenAPI 스펙은 [`openapi.json`](./openapi.json)(레포 SSOT)이며, 생성·발행·소비는 **[docs/contract-consumption.md](./docs/contract-consumption.md)** 참조. CI(`.github/workflows/ci.yml`)가 drift를 막고 `main`에서 R2로 발행한다.
+OpenAPI 스펙은 [`openapi.json`](./openapi.json)(레포 SSOT)이며, 앱이 `GET /v1/openapi.json`으로 직접 서빙한다(계약 호스팅 기본). CI(`.github/workflows/ci.yml`)가 drift를 막는다. 생성·소비·발행 옵션은 **[docs/contract-consumption.md](./docs/contract-consumption.md)** 참조.
+
+## 배포
+
+homelab(k3s GitOps)에 배포한다. 이미지 `ghcr.io/ukyi-app/trip-mate-api`(linux/arm64, `release.yaml` → GHCR), 부팅 시 self-migrate, `/health`·`/ready` probe, port 8080. DB/캐시는 conn 핸들(`TRIP_MATE_*`)·앱 시크릿은 SealedSecret(`bun run secret:seal`)로 주입. 전체 절차는 **[docs/deployment-homelab.md](./docs/deployment-homelab.md)**.
 
 ## 도메인(주요 슬라이스)
 
