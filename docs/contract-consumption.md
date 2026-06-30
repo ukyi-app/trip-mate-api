@@ -27,6 +27,21 @@ bun run gen:openapi   # src/openapi-gen.ts → openapi.json (무-IO·stub deps, 
 
 발행 경로: `s3://<R2_BUCKET>/openapi.json` (`Cache-Control: no-cache`).
 
+### 3.1 수동 발행 (로컬)
+
+CI를 거치지 않고 즉시 발행하려면(예: 핫픽스 계약), 동일 R2_* 환경변수로:
+
+```bash
+export R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \
+       R2_ENDPOINT=https://<account_id>.r2.cloudflarestorage.com R2_BUCKET=<버킷명>
+bun run gen:openapi      # 최신 스펙 재생성(필수)
+bun run publish:openapi  # src/publish-openapi.ts → R2 업로드(aws CLI 필요, CI와 동일 경로)
+```
+
+- **aws CLI 필요**(S3 호환 업로드). `R2_OBJECT_KEY`로 키 변경 가능(기본 `openapi.json`, 예: `v1/openapi.json`).
+- 환경변수 누락 시 어떤 변수가 빠졌는지 명시한 에러로 안전 중단.
+- 실발행 자격증명(R2 API 토큰)은 Cloudflare 대시보드에서 발급. CI 자동 발행은 위 secrets를 GitHub repo에 설정하면 `main` 푸시 시 동작.
+
 ## 4. 소비 (프론트엔드)
 
 FE 레포에서 [@hey-api/openapi-ts](https://heyapi.dev)로 타입·클라이언트를 생성한다(별도 레포라 여기엔 codegen 없음):
@@ -46,4 +61,4 @@ bunx @hey-api/openapi-ts \
 
 ## 5. 계약 요약(현재)
 
-`/v1` 하위 14 경로: 인증(`/api/auth/*`, Better Auth) · trips · members/invites · expenses(+FX) · settlement(GET·precheck·finalize·unlock·transfers/mark-paid). 에러는 RFC 9457 `application/problem+json`.
+`/v1` 하위 19 경로: 인증(`/api/auth/*`, Better Auth) · trips · members/invites · expenses(+FX·preview·fx-defaults·**커서 목록/필터**) · settlement(GET·precheck·finalize·unlock·transfers/mark-paid·**mark-unpaid**·**history**·**transfers/events**). 에러는 RFC 9457 `application/problem+json`. 멱등은 DB-durable(`idempotency_keys`).
