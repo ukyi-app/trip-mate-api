@@ -64,11 +64,16 @@ export const createExpenseSchema = z
       .regex(/^\d+(\.\d+)?$/)
       .max(24)
       .optional(), // major→major, 길이 경계(finding #2 pass3)
+    card_billed_settlement_amount: minorString.optional(), // 존재 시 card_billed 모드(카드 청구액=정산액)
     expense_settlement_state: z.enum(STATE).optional(),
+  })
+  .refine((d) => !(d.card_billed_settlement_amount !== undefined && d.manualRate !== undefined), {
+    message: "card_billed and manualRate are mutually exclusive",
+    path: ["card_billed_settlement_amount"],
   })
   .openapi("CreateExpense");
 
-// 메타+참여자만(FX 불변, 편집재계산=후속). version 필수 CAS echo.
+// 편집재계산: 메타+참여자 + FX 영향 필드. version 필수 CAS echo.
 export const updateExpenseSchema = z
   .object({
     version: z.number().int(),
@@ -82,9 +87,52 @@ export const updateExpenseSchema = z
       .refine((a) => new Set(a).size === a.length, { message: "duplicate participant" })
       .optional(), // finding #3 pass2
     expense_settlement_state: z.enum(STATE).optional(),
+    local_amount: minorString.optional(),
+    local_currency: z.string().length(3).optional(),
+    spent_at: z.iso.datetime().optional(),
+    manualRate: z
+      .string()
+      .regex(/^\d+(\.\d+)?$/)
+      .max(24)
+      .optional(),
+    card_billed_settlement_amount: minorString.optional(),
+  })
+  .refine((d) => !(d.card_billed_settlement_amount !== undefined && d.manualRate !== undefined), {
+    message: "card_billed and manualRate are mutually exclusive",
+    path: ["card_billed_settlement_amount"],
   })
   .openapi("UpdateExpense");
+
+// needs_manual=true면 settlement_amount·source·per_member 미정 → nullable/빈배열(finding #1 pass1).
+export const previewResponseSchema = z
+  .object({
+    needs_manual: z.boolean(),
+    settlement_amount: z.string().regex(/^\d+$/).nullable(),
+    settlement_currency: z.string(),
+    exchange_rate: z.string().nullable(),
+    exchange_rate_source: z
+      .enum(["identity", "manual", "auto", "last_known", "trip_default"])
+      .nullable(),
+    settlement_amount_source: z.enum(["converted", "card_billed"]).nullable(),
+    fallbackWarning: z.boolean(),
+    per_member: z.array(
+      z.object({ member_id: z.string().uuid(), share: z.string().regex(/^\d+$/) }),
+    ),
+  })
+  .openapi("ExpensePreview");
+
+export const fxDefaultRequestSchema = z
+  .object({
+    base_currency: z.string().length(3),
+    settlement_currency: z.string().length(3),
+    rate: z
+      .string()
+      .regex(/^\d+(\.\d+)?$/)
+      .max(24),
+  })
+  .openapi("SetTripFxDefault");
 
 export type ExpenseResponse = z.infer<typeof expenseResponseSchema>;
 export type CreateExpense = z.infer<typeof createExpenseSchema>;
 export type UpdateExpense = z.infer<typeof updateExpenseSchema>;
+export type PreviewResponse = z.infer<typeof previewResponseSchema>;
