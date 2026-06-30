@@ -6,6 +6,7 @@ import {
   settlementTransfers,
   settlementMemberSummaries,
   settlementCurrencyTotals,
+  settlementTransferEvents,
 } from "../../db/schema/settlements.ts";
 import { trips } from "../../db/schema/trips.ts";
 import type { SettlementResult } from "./domain/compute.ts";
@@ -35,6 +36,7 @@ const INC_COLS = {
 
 // db 또는 tx 공용(select+update). finalize/mark-paid는 tx(직렬화·원자), GET은 db.
 type Exec = Pick<PostgresJsDatabase<Record<string, unknown>>, "select" | "update">;
+type ExecI = Pick<PostgresJsDatabase<Record<string, unknown>>, "insert">; // 이벤트 기록용(tx)
 
 export class DrizzleSettlementRepo<T extends Record<string, unknown>> {
   constructor(private readonly db: PostgresJsDatabase<T>) {}
@@ -190,9 +192,13 @@ export class DrizzleSettlementRepo<T extends Record<string, unknown>> {
     exec: Exec,
     tripId: string,
     transferId: string,
-  ): Promise<{ to_member_id: string; payment_status: string } | null> {
+  ): Promise<{ settlement_id: string; to_member_id: string; payment_status: string } | null> {
     const rows = await exec
-      .select({ to: settlementTransfers.to_member_id, status: settlementTransfers.payment_status })
+      .select({
+        settlement_id: settlementTransfers.settlement_id,
+        to: settlementTransfers.to_member_id,
+        status: settlementTransfers.payment_status,
+      })
       .from(settlementTransfers)
       .innerJoin(settlements, eq(settlementTransfers.settlement_id, settlements.id))
       .innerJoin(trips, eq(settlements.trip_id, trips.id))
@@ -206,7 +212,9 @@ export class DrizzleSettlementRepo<T extends Record<string, unknown>> {
         ),
       );
     const r = rows[0];
-    return r ? { to_member_id: r.to, payment_status: r.status } : null;
+    return r
+      ? { settlement_id: r.settlement_id, to_member_id: r.to, payment_status: r.status }
+      : null;
   }
 
   /** CAS pending→paid(멱등 — 이미 paid면 0행). **인가 tx(exec) 위에서 실행**(finding #2 pass3). */
@@ -226,6 +234,97 @@ export class DrizzleSettlementRepo<T extends Record<string, unknown>> {
           eq(settlementTransfers.payment_status, "pending"),
         ),
       );
+  }
+
+  /** CAS paid→pending(멱등 — 이미 pending이면 0행). paid_at·marked_by null로 paid_consistency 충족. */
+  async setTransferUnpaid(exec: Exec, tripId: string, transferId: string): Promise<void> {
+    await exec
+      .update(settlementTransfers)
+      .set({ payment_status: "pending", paid_at: null, marked_by_member_id: null })
+      .where(
+        and(
+          eq(settlementTransfers.trip_id, tripId),
+          eq(settlementTransfers.id, transferId),
+          eq(settlementTransfers.payment_status, "paid"),
+        ),
+      );
+  }
+
+  /** 결제 이벤트 append. 상태 전이가 실제 발생할 때만 service가 호출(멱등 재시도는 미기록). */
+  async insertTransferEvent(
+    exec: ExecI,
+    e: {
+      transferId: string;
+      tripId: string;
+      settlementId: string;
+      eventType: "paid" | "unpaid";
+      actorMemberId: string;
+    },
+  ): Promise<void> {
+    await exec.insert(settlementTransferEvents).values({
+      transfer_id: e.transferId,
+      trip_id: e.tripId,
+      settlement_id: e.settlementId,
+      event_type: e.eventType,
+      actor_member_id: e.actorMemberId,
+    });
+  }
+
+  /** transfer의 결제 이벤트(seq desc — 삽입 순서, created_at 역전 면역). */
+  async listTransferEvents(
+    exec: Exec,
+    tripId: string,
+    transferId: string,
+  ): Promise<{ event_type: string; actor_member_id: string; created_at: Date }[]> {
+    return exec
+      .select({
+        event_type: settlementTransferEvents.event_type,
+        actor_member_id: settlementTransferEvents.actor_member_id,
+        created_at: settlementTransferEvents.created_at,
+      })
+      .from(settlementTransferEvents)
+      .where(
+        and(
+          eq(settlementTransferEvents.trip_id, tripId),
+          eq(settlementTransferEvents.transfer_id, transferId),
+        ),
+      )
+      .orderBy(desc(settlementTransferEvents.seq));
+  }
+
+  /** transfer가 해당 trip 소속인지(이벤트 조회 404 판별용). */
+  async getTransferTripScope(exec: Exec, tripId: string, transferId: string): Promise<boolean> {
+    const rows = await exec
+      .select({ id: settlementTransfers.id })
+      .from(settlementTransfers)
+      .where(and(eq(settlementTransfers.trip_id, tripId), eq(settlementTransfers.id, transferId)));
+    return rows.length > 0;
+  }
+
+  /** 정산 버전이력(active+superseded, 최신 version 먼저). */
+  async listSettlementVersions(
+    exec: Exec,
+    tripId: string,
+  ): Promise<
+    {
+      version: number;
+      status: string;
+      finalized_by_member_id: string;
+      finalized_at: Date;
+      total_settlement_amount: bigint;
+    }[]
+  > {
+    return exec
+      .select({
+        version: settlements.version,
+        status: settlements.status,
+        finalized_by_member_id: settlements.finalized_by_member_id,
+        finalized_at: settlements.finalized_at,
+        total_settlement_amount: settlements.total_settlement_amount,
+      })
+      .from(settlements)
+      .where(eq(settlements.trip_id, tripId))
+      .orderBy(desc(settlements.version));
   }
 
   /** **finalized GET용**(finding #2 pass1/2): active 스냅샷의 영속 transfers/summaries/currency_totals. exec=일관-읽기 tx. */
