@@ -1,0 +1,14 @@
+# main 머지 = 빌드 + GHCR push. 배포 반영은 homelab측 GHCR 폴링/온보딩이 권위.
+# 빌드 로직의 SSOT는 homelab의 reusable 워크플로.
+name: release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  release:
+    uses: ukyi-app/homelab/.github/workflows/reusable-app-build.yaml@main
+    with:
+      app: ${{ github.event.repository.name }}

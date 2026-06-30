@@ -1,6 +1,8 @@
 node_modules
 .worktrees
 docs
+.github
+tools
 *.test.ts
 .env
 .env.*

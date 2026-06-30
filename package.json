@@ -17,6 +17,7 @@
     "db:seed": "bun src/db/seed/run.ts",
     "gen:openapi": "bun src/openapi-gen.ts",
     "publish:openapi": "bun src/publish-openapi.ts",
+    "secret:seal": "bun tools/seal-secret.mts --config .app-config.yml --env .env",
     "auth:generate": "bunx @better-auth/cli generate --output src/db/schema/auth-schema.ts --y"
   },
   "dependencies": {
