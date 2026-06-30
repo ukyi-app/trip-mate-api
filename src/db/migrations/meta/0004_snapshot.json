@@ -1,5 +1,5 @@
 {
-  "id": "ac8fb433-0c7f-4103-ae8f-d903ca1b0dc0",
+  "id": "6fb2c2af-56f7-48e6-a02d-593af81db9fc",
   "prevId": "a41a184e-43dd-4056-bcbd-b38916175388",
   "version": "7",
   "dialect": "postgresql",
@@ -1323,6 +1323,12 @@
           "columns": [
             {
               "expression": "trip_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_by_member_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

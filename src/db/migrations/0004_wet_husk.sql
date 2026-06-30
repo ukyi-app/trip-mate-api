@@ -1,2 +1,0 @@
-ALTER TABLE "expenses" ADD COLUMN "idempotency_key" text;--> statement-breakpoint
-CREATE UNIQUE INDEX "uq_expense_idem" ON "expenses" USING btree ("trip_id","idempotency_key") WHERE idempotency_key IS NOT NULL AND deleted_at IS NULL;

@@ -154,6 +154,7 @@ export class DrizzleExpenseRepo<T extends Record<string, unknown>> {
           .where(
             and(
               eq(expenses.trip_id, s.trip_id),
+              eq(expenses.created_by_member_id, s.created_by_member_id), // principal 포함(미들웨어 스코프 정합)
               eq(expenses.idempotency_key, s.idempotency_key),
               isNull(expenses.deleted_at),
             ),
@@ -164,7 +165,7 @@ export class DrizzleExpenseRepo<T extends Record<string, unknown>> {
         .insert(expenses)
         .values({
           trip_id: s.trip_id,
-          idempotency_key: s.idempotency_key ?? null,
+          idempotency_key: s.idempotency_key || null, // 빈 문자열 → null(가드와 일치·부분 unique 오탐 방지)
           title: s.title,
           local_amount: s.local_amount,
           local_currency: s.local_currency,

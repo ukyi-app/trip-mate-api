@@ -109,10 +109,11 @@ export const expenses = pgTable(
       foreignColumns: [t.trip_id, t.id],
     }), // 환불 same-trip 자기참조
     index("ix_exp_refund").on(t.refund_of_expense_id),
-    // 멱등 dedup(§5·idempotency ADR): 라이브 지출의 (trip_id, idempotency_key) 유일 → 생성 중복 원자 차단.
+    // 멱등 dedup(§5·idempotency ADR): 라이브 지출의 (trip, 생성 principal, key) 유일 → 생성 중복 원자 차단.
+    // principal(created_by_member_id) 포함 — 미들웨어 (user,path,key) per-principal 스코프와 정합(타 멤버 같은 키 격리).
     // 부분 인덱스: key 없는 생성(null)·soft-delete 행은 제외(키 재사용 가능).
     uniqueIndex("uq_expense_idem")
-      .on(t.trip_id, t.idempotency_key)
+      .on(t.trip_id, t.created_by_member_id, t.idempotency_key)
       .where(sql`idempotency_key IS NOT NULL AND deleted_at IS NULL`),
   ],
 );

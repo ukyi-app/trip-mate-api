@@ -92,6 +92,24 @@ describe("DrizzleExpenseRepo", () => {
     const b = await repo.create(mk(trip, memberId));
     expect(b.id).not.toBe(a.id);
   });
+  it("멱등 마커: 빈 문자열 키 → null 저장·멱등 비적용(매번 신규, 리뷰 #1)", async () => {
+    const { trip, memberId } = await setup();
+    const repo = new DrizzleExpenseRepo(ctx.db);
+    const a = await repo.create(mk(trip, memberId, { idempotency_key: "" }));
+    const b = await repo.create(mk(trip, memberId, { idempotency_key: "" }));
+    expect(b.id).not.toBe(a.id); // "" → null → 23505·dedup 없음
+  });
+  it("멱등 마커: 같은 키·다른 멤버(principal) → 독립(리뷰 #2)", async () => {
+    const { trip, memberId } = await setup();
+    const m2 = await mkMember(ctx.sql, trip, { email: "m2@e.com" });
+    const repo = new DrizzleExpenseRepo(ctx.db);
+    const a = await repo.create(mk(trip, memberId, { idempotency_key: "shared" }));
+    const b = await repo.create({
+      ...mk(trip, memberId, { idempotency_key: "shared" }),
+      created_by_member_id: m2, // mk가 created_by를 memberId로 고정 → 사후 오버라이드로 principal 변경
+    });
+    expect(b.id).not.toBe(a.id); // principal 다르면 dedup 안 됨(미들웨어 스코프 정합)
+  });
   it("updateMeta CAS: version 일치 시 +1, 불일치 0행", async () => {
     const { trip, memberId } = await setup();
     const repo = new DrizzleExpenseRepo(ctx.db);

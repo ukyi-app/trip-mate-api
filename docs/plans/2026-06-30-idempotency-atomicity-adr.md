@@ -68,9 +68,10 @@
 ## 5. 결정
 
 - [ ] C: 현행 유지 + 본 ADR을 accepted-risk로 채택(코드 변경 0)
-- [x] **C + B-특화 (채택·구현)**: 미들웨어 멱등 유지 + 지출 생성에 `expenses(trip_id, idempotency_key)` 부분 unique 마커. `repo.create`가 trip FOR UPDATE 하에서 pre-check(같은 키 라이브 행 → replay) + 키 삽입 → 크래시-갭 중복을 원자적으로 차단. 정산/이체는 비즈니스 자연 멱등이라 추가 작업 불요(§2).
+- [x] **C + B-특화 (채택·구현)**: 미들웨어 멱등 유지 + 지출 생성에 `expenses(trip_id, created_by_member_id, idempotency_key)` 부분 unique 마커. `repo.create`가 trip FOR UPDATE 하에서 pre-check(같은 principal·키 라이브 행 → replay) + 키 삽입 → 크래시-갭 중복을 원자적으로 차단. 정산/이체는 비즈니스 자연 멱등이라 추가 작업 불요(§2).
 - [ ] B(핵심 라우트 전체) / A(전면) — 비용 대비 권장하지 않음
 
-**구현(2026-06-30):** 마이그레이션 0004(컬럼 + 부분 unique `WHERE idempotency_key IS NOT NULL AND deleted_at IS NULL`) · `ExpenseSnapshot.idempotency_key` · controller가 `Idempotency-Key` 헤더 전달 · repo/controller 테스트(같은 키 replay·다른 키 별개·null 비충돌). 잔여: 미들웨어 멱등의 at-least-once 시맨틱은 그대로(비-지출 라우트는 자연 멱등이 커버).
+**구현(2026-06-30):** 마이그레이션 0004(컬럼 + 부분 unique `(trip_id, created_by_member_id, idempotency_key) WHERE key IS NOT NULL AND deleted_at IS NULL`) · `ExpenseSnapshot.idempotency_key` · controller가 `Idempotency-Key` 헤더 전달 · repo/controller 테스트.
+**적대적 리뷰 반영(2건):** ① dedup 스코프에 `created_by_member_id`(principal) 포함 — 미들웨어 `(user,path,key)` per-principal 스코프와 정합(타 멤버 같은 키 격리, 무성 손실 방지) ② 빈 문자열 키 `|| null` 정규화(가드/저장 일치, 부분 unique 오탐 방지). 잔여: 미들웨어 멱등의 at-least-once 시맨틱은 그대로(비-지출 라우트는 자연 멱등이 커버).
 
 > 미들웨어 멱등의 at-least-once 시맨틱과 §2의 연산별 자연 멱등성은 계약/운영 가정으로 유지된다. 클라이언트는 mutation에 `Idempotency-Key`를 보내고, 5xx/네트워크 실패 시 **같은 키로 재시도**한다.
