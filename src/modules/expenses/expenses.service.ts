@@ -13,7 +13,7 @@ import { resolveFx, type FxDeps } from "../fx/fx.service.ts";
 import { isResolved, type FxInput, type FxResult } from "../fx/fx.types.ts";
 import { splitExpense } from "../settlements/domain/compute.ts";
 import { minor, type CurrencyCode, type MemberId } from "../../core/money.ts";
-import type { DrizzleExpenseRepo, ExpenseRow } from "./expenses.repo.ts";
+import type { DrizzleExpenseRepo, ExpenseRow, MetaPatch } from "./expenses.repo.ts";
 import type { CreateExpense, UpdateExpense, PreviewResponse } from "./expenses.schema.ts";
 
 export interface ExpenseActor {
@@ -273,7 +273,77 @@ export class ExpensesService<T extends Record<string, unknown>> {
     actor: ExpenseActor,
   ): Promise<ExpenseRow> {
     // finalized 가드는 repo.updateMeta tx 내 FOR UPDATE가 race-safe하게 수행(finding #2 pass2)
-    const { version, ...patch } = input;
+    const {
+      version,
+      local_amount,
+      local_currency,
+      spent_at,
+      manualRate,
+      card_billed_settlement_amount,
+      ...meta
+    } = input;
+    const fxEdit =
+      local_amount !== undefined ||
+      local_currency !== undefined ||
+      spent_at !== undefined ||
+      manualRate !== undefined ||
+      card_billed_settlement_amount !== undefined;
+    const patch: MetaPatch = { ...meta };
+    if (fxEdit) {
+      const cur = await this.repo.findById(tripId, id);
+      if (!cur) throw new NotFoundError("expense not found");
+      const trip = await this.assertTripOpen(tripId);
+      const isCard = cur.settlement_amount_source === "card_billed";
+      // source 전환 거부(설계 §4, out-of-scope)
+      if (isCard && manualRate !== undefined)
+        throw new ValidationError("source transition (card_billed→converted) not supported", {
+          id,
+        });
+      if (!isCard && card_billed_settlement_amount !== undefined)
+        throw new ValidationError("source transition (converted→card_billed) not supported", {
+          id,
+        });
+      if (isCard) {
+        // card_billed: local 필드 + (있으면)카드 금액. FX 재계산 없음.
+        if (local_amount !== undefined) patch.local_amount = BigInt(local_amount);
+        if (local_currency !== undefined) patch.local_currency = local_currency;
+        if (spent_at !== undefined) {
+          patch.spent_at = new Date(spent_at);
+          patch.exchange_rate_date = localDate(spent_at, trip.tz);
+        }
+        if (card_billed_settlement_amount !== undefined)
+          patch.settlement_amount = BigInt(card_billed_settlement_amount);
+      } else {
+        // converted: 병합값으로 재계산(finding #1 pass3 — local 원본+파생 함께)
+        const newLocalAmount = local_amount ?? cur.local_amount.toString();
+        const newLocalCurrency = local_currency ?? cur.local_currency;
+        const newSpentAt = spent_at ?? cur.spent_at.toISOString();
+        const fx = await this.resolveExpenseFx({
+          tripId,
+          tz: trip.tz,
+          settle: trip.settle,
+          local_amount: newLocalAmount,
+          local_currency: newLocalCurrency,
+          spent_at: newSpentAt,
+          ...(manualRate !== undefined ? { manualRate } : {}),
+        });
+        if (!isResolved(fx))
+          throw new FxUnresolvedError("exchange rate unresolved; provide manualRate", { tripId }); // CAS 전 422·구행 보존(finding #2 pass1)
+        patch.local_amount = BigInt(newLocalAmount);
+        patch.local_currency = newLocalCurrency;
+        patch.spent_at = new Date(newSpentAt);
+        patch.settlement_amount = fx.settlement_amount;
+        patch.exchange_rate = fx.exchange_rate;
+        patch.exchange_rate_date = localDate(newSpentAt, trip.tz);
+        patch.exchange_rate_source = fx.exchange_rate_source;
+        patch.exchange_rate_provider = fx.exchange_rate_provider;
+        patch.exchange_rate_table_date = fx.exchange_rate_table_date;
+        patch.exchange_rate_fetched_at = fx.exchange_rate_fetched_at
+          ? new Date(fx.exchange_rate_fetched_at)
+          : null;
+        patch.settlement_amount_source = "converted";
+      }
+    }
     let res;
     try {
       res = await this.repo.updateMeta(tripId, id, version, patch, actor.memberId);

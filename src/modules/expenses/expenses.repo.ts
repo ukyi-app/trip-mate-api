@@ -55,6 +55,25 @@ export interface MetaPatch {
   memo?: string | null | undefined;
   expense_settlement_state?: "included" | "personal" | "record_only" | undefined;
   participant_member_ids?: string[] | undefined;
+  // 편집재계산(FX 영향): local 원본 + 파생 FX 컬럼을 같은 CAS UPDATE에(finding #1 pass3).
+  local_amount?: bigint | undefined;
+  local_currency?: string | undefined;
+  spent_at?: Date | undefined;
+  settlement_amount?: bigint | undefined;
+  exchange_rate?: string | null | undefined;
+  exchange_rate_date?: string | undefined;
+  exchange_rate_source?:
+    | "identity"
+    | "manual"
+    | "auto"
+    | "last_known"
+    | "trip_default"
+    | null
+    | undefined;
+  exchange_rate_provider?: string | null | undefined;
+  exchange_rate_table_date?: string | null | undefined;
+  exchange_rate_fetched_at?: Date | null | undefined;
+  settlement_amount_source?: "converted" | "card_billed" | undefined;
 }
 
 const COLS = {
@@ -253,6 +272,23 @@ export class DrizzleExpenseRepo<T extends Record<string, unknown>> {
       if (patch.memo !== undefined) set.memo = patch.memo;
       if (patch.expense_settlement_state !== undefined)
         set.expense_settlement_state = patch.expense_settlement_state;
+      // 편집재계산 FX/local 필드(finding #1 pass3)
+      if (patch.local_amount !== undefined) set.local_amount = patch.local_amount;
+      if (patch.local_currency !== undefined) set.local_currency = patch.local_currency;
+      if (patch.spent_at !== undefined) set.spent_at = patch.spent_at;
+      if (patch.settlement_amount !== undefined) set.settlement_amount = patch.settlement_amount;
+      if (patch.exchange_rate !== undefined) set.exchange_rate = patch.exchange_rate;
+      if (patch.exchange_rate_date !== undefined) set.exchange_rate_date = patch.exchange_rate_date;
+      if (patch.exchange_rate_source !== undefined)
+        set.exchange_rate_source = patch.exchange_rate_source;
+      if (patch.exchange_rate_provider !== undefined)
+        set.exchange_rate_provider = patch.exchange_rate_provider;
+      if (patch.exchange_rate_table_date !== undefined)
+        set.exchange_rate_table_date = patch.exchange_rate_table_date;
+      if (patch.exchange_rate_fetched_at !== undefined)
+        set.exchange_rate_fetched_at = patch.exchange_rate_fetched_at;
+      if (patch.settlement_amount_source !== undefined)
+        set.settlement_amount_source = patch.settlement_amount_source;
       const updated = await tx
         .update(expenses)
         .set(set)

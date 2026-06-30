@@ -66,6 +66,48 @@ describe("ExpensesService", () => {
     expect(exp.settlement_amount_source).toBe("card_billed");
     expect(exp.exchange_rate_source).toBeNull();
   });
+  it("편집재계산: local_amount 변경 → settlement_amount 재계산·local도 영속(identity, finding #1 pass3)", async () => {
+    const { trip, memberId } = await setup("KRW");
+    const exp = await svc().createExpense(trip, input(memberId), { memberId }); // KRW identity 37900
+    const updated = await svc().updateExpense(
+      trip,
+      exp.id,
+      { version: 0, local_amount: "50000" },
+      { memberId },
+    );
+    expect(updated.settlement_amount).toBe(50000n); // identity 재계산
+    expect(updated.local_amount).toBe(50000n); // local 원본도 갱신
+    expect((await svc().getExpense(trip, exp.id)).local_amount).toBe(50000n); // 재로드 정합
+  });
+  it("source 전환(card_billed→converted) 시도 → 422", async () => {
+    const { trip, memberId } = await setup("KRW");
+    const exp = await svc().createExpense(
+      trip,
+      input(memberId, { local_currency: "JPY", card_billed_settlement_amount: "350000" }),
+      { memberId },
+    );
+    await expect(
+      svc().updateExpense(
+        trip,
+        exp.id,
+        { version: 0, local_amount: "1", manualRate: "9" },
+        { memberId },
+      ),
+    ).rejects.toMatchObject({ status: 422 });
+  });
+  it("편집재계산 미해결(JPY·manual 없음·provider 없음) → 422·구행 보존(finding #2 pass1)", async () => {
+    const { trip, memberId } = await setup("KRW");
+    const exp = await svc().createExpense(trip, input(memberId), { memberId }); // KRW identity 37900
+    await expect(
+      svc().updateExpense(
+        trip,
+        exp.id,
+        { version: 0, local_currency: "JPY", local_amount: "1000" },
+        { memberId },
+      ),
+    ).rejects.toMatchObject({ status: 422 });
+    expect((await svc().getExpense(trip, exp.id)).settlement_amount).toBe(37900n); // 구행 보존
+  });
   it("manualRate 제공(현지≠정산) → manual 환산 저장", async () => {
     const { trip, memberId } = await setup("KRW");
     const exp = await svc().createExpense(
