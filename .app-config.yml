@@ -1,1 +1,21 @@
-kind: service
+# homelab 앱 자기선언(v2, 계약: ukyi/homelab tools/app-config-schema.json).
+# create-app이 이걸 values.yaml + .bindings.json으로 변환. DB/Redis는 SealedSecret으로 주입(여기 없음).
+kind: web
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+route:
+  public: false # 내부 전용(trip-mate-api.home.<domain>) — public 노출은 명시 opt-in
+  paths:
+    - /
+probes:
+  liveness:
+    path: /health
+  readiness:
+    path: /ready
+deploy:
+  autoDeploy: true

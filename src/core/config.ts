@@ -3,15 +3,19 @@ import { z } from "zod";
 
 export const env = createEnv({
   server: {
-    DATABASE_URL: z.string().url(),
+    PORT: z.coerce.number().int().positive().default(8080), // 공유 차트 ports.http 계약
+    DATABASE_URL: z.string().url(), // 런타임(pgbouncer 풀러 권장)
+    MIGRATE_DATABASE_URL: z.string().url().optional(), // boot self-migrate 직결(없으면 DATABASE_URL)
     BETTER_AUTH_SECRET: z
       .string()
       .min(32, "BETTER_AUTH_SECRET는 최소 32자(고엔트로피, openssl rand -base64 32) — finding #1"),
     BETTER_AUTH_URL: z.string().url(),
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
-    // ── 인증·초대 슬라이스 추가 ──
-    VALKEY_URL: z.string().url(), // 세션 secondaryStorage (ioredis). 예 redis://localhost:6379
+    // ── 인증·초대 슬라이스 추가 ── 세션 secondaryStorage·FX 캐시(ioredis).
+    // 계약 키는 REDIS_URL(homelab), 로컬 별칭 VALKEY_URL 폴백 — 하나는 필수(main.ts에서 해소·검증).
+    REDIS_URL: z.string().url().optional(),
+    VALKEY_URL: z.string().url().optional(),
     // FE origin allowlist(CSRF 정확 일치 + Better Auth trustedOrigins). 콤마구분 → 배열.
     WEB_ORIGINS: z
       .string()

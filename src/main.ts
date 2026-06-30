@@ -22,10 +22,16 @@ import { OxrProvider } from "./modules/fx/provider/oxr.ts";
 import { CurrencyApiProvider } from "./modules/fx/provider/currencyapi.ts";
 import { buildV1App } from "./app.ts";
 import { sweepExpiredIdempotency } from "./core/idempotency.ts";
+import { runMigrations } from "./db/migrate.ts";
 
 const core = createCore();
+// boot self-migrate(homelab 계약) — 서빙 전 멱등 마이그레이션. 직결 URL 우선, 실패 시 부팅 중단(fail-closed).
+await runMigrations(core.config.MIGRATE_DATABASE_URL ?? core.config.DATABASE_URL);
+
 const app = createApp();
-const redis = new IoRedis(core.config.VALKEY_URL); // auth secondaryStorage·FX 캐시(멱등은 DB로 이전)
+const redisUrl = core.config.REDIS_URL ?? core.config.VALKEY_URL; // 계약 키 우선, 로컬 별칭 폴백
+if (!redisUrl) throw new Error("REDIS_URL(또는 VALKEY_URL) 필요");
+const redis = new IoRedis(redisUrl); // auth secondaryStorage·FX 캐시(멱등은 DB로 이전)
 
 // auth 싱글톤은 컴포지션 루트에서 구성: db·redis·시크릿·origin 주입.
 const auth = createAuth({
@@ -94,7 +100,8 @@ const v1 = buildV1App({
 });
 app.route("/", v1); // v1 라우트는 /v1/... (basePath)
 
-app.get("/health", (c) => c.json({ status: "ok" }));
+app.get("/health", (c) => c.json({ status: "ok" })); // liveness(차트 probe)
+app.get("/ready", (c) => c.json({ status: "ready" })); // readiness(차트 probe) — boot migrate 후 서빙
 
 // 만료 멱등 행 주기 정리(Redis EX 자동 eviction 대체). unref로 단독 프로세스 유지 안 함.
 setInterval(() => {
@@ -103,4 +110,4 @@ setInterval(() => {
   );
 }, 3_600_000).unref();
 
-export default { port: 3000, fetch: app.fetch };
+export default { port: core.config.PORT, fetch: app.fetch }; // 차트 ports.http=8080
