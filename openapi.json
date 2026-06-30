@@ -469,6 +469,11 @@
             "maxLength": 24,
             "pattern": "^\\d+(\\.\\d+)?$"
           },
+          "card_billed_settlement_amount": {
+            "type": "string",
+            "maxLength": 19,
+            "pattern": "^\\d+$"
+          },
           "expense_settlement_state": {
             "type": "string",
             "enum": [
@@ -487,6 +492,88 @@
           "participant_member_ids",
           "payment_method",
           "category"
+        ]
+      },
+      "ExpensePreview": {
+        "type": "object",
+        "properties": {
+          "needs_manual": {
+            "type": "boolean"
+          },
+          "settlement_amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d+$"
+          },
+          "settlement_currency": {
+            "type": "string"
+          },
+          "exchange_rate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exchange_rate_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "identity",
+              "manual",
+              "auto",
+              "last_known",
+              "trip_default",
+              null
+            ]
+          },
+          "settlement_amount_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "converted",
+              "card_billed",
+              null
+            ]
+          },
+          "fallbackWarning": {
+            "type": "boolean"
+          },
+          "per_member": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "member_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "share": {
+                  "type": "string",
+                  "pattern": "^\\d+$"
+                }
+              },
+              "required": [
+                "member_id",
+                "share"
+              ]
+            }
+          }
+        },
+        "required": [
+          "needs_manual",
+          "settlement_amount",
+          "settlement_currency",
+          "exchange_rate",
+          "exchange_rate_source",
+          "settlement_amount_source",
+          "fallbackWarning",
+          "per_member"
         ]
       },
       "UpdateExpense": {
@@ -545,6 +632,30 @@
               "personal",
               "record_only"
             ]
+          },
+          "local_amount": {
+            "type": "string",
+            "maxLength": 19,
+            "pattern": "^\\d+$"
+          },
+          "local_currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "spent_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "manualRate": {
+            "type": "string",
+            "maxLength": 24,
+            "pattern": "^\\d+(\\.\\d+)?$"
+          },
+          "card_billed_settlement_amount": {
+            "type": "string",
+            "maxLength": 19,
+            "pattern": "^\\d+$"
           }
         },
         "required": [
@@ -564,6 +675,42 @@
         "required": [
           "id",
           "deleted"
+        ]
+      },
+      "FxDefaultSet": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "SetTripFxDefault": {
+        "type": "object",
+        "properties": {
+          "base_currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "settlement_currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "rate": {
+            "type": "string",
+            "maxLength": 24,
+            "pattern": "^\\d+(\\.\\d+)?$"
+          }
+        },
+        "required": [
+          "base_currency",
+          "settlement_currency",
+          "rate"
         ]
       },
       "Settlement": {
@@ -1506,6 +1653,78 @@
         }
       }
     },
+    "/v1/trips/{tripId}/expenses/preview": {
+      "post": {
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "tripId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateExpense"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpensePreview"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "404 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "422 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/trips/{tripId}/expenses/{expenseId}": {
       "get": {
         "security": [
@@ -1725,6 +1944,78 @@
           },
           "409": {
             "description": "409 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trips/{tripId}/fx-defaults": {
+      "put": {
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "tripId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetTripFxDefault"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FxDefaultSet"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "404 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "422 problem+json",
             "content": {
               "application/problem+json": {
                 "schema": {

@@ -96,4 +96,16 @@ describe("buildV1App 보안 체인(CSRF·CORS, finding #2 pass4)", () => {
       "idempotency-key",
     );
   });
+  it("OPTIONS preflight가 fx-defaults PUT 허용(finding #1 pass2)", async () => {
+    const u = await mkUser(ctx.sql);
+    const res = await v1For(u).request(
+      "/v1/trips/00000000-0000-4000-8000-000000000000/fx-defaults",
+      {
+        method: "OPTIONS",
+        headers: { origin: ORIGIN, "access-control-request-method": "PUT" },
+      },
+    );
+    expect(res.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+    expect((res.headers.get("access-control-allow-methods") ?? "").toUpperCase()).toContain("PUT");
+  });
 });

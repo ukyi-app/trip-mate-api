@@ -29,4 +29,12 @@ describe("expenses OpenAPI 계약", () => {
     expect(schemas.Expense).toBeDefined();
     expect(schemas.CreateExpense).toBeDefined();
   });
+  it("FX 확장 경로·스키마(preview·fx-defaults)", () => {
+    const paths = Object.keys(doc().paths ?? {});
+    expect(paths.some((p) => p.includes("/expenses/preview"))).toBe(true);
+    expect(paths.some((p) => p.includes("/fx-defaults"))).toBe(true);
+    const schemas = doc().components?.schemas ?? {};
+    expect(schemas.ExpensePreview).toBeDefined();
+    expect(schemas.SetTripFxDefault).toBeDefined();
+  });
 });
