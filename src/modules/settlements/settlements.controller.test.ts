@@ -61,6 +61,16 @@ const finalize = (app: ReturnType<typeof appFor>, trip: string, seen: unknown) =
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ seen_expense_versions: seen }),
   });
+const aTid = async (trip: string) =>
+  (
+    await ctx.sql`select id from settlement_transfers where trip_id=${trip} and basis='settlement' limit 1`
+  )[0]!.id as string;
+const markPaid = (app: ReturnType<typeof appFor>, trip: string, tid: string) =>
+  app.request(`/trips/${trip}/settlement/transfers/${tid}/mark-paid`, { method: "POST" });
+const markUnpaid = (app: ReturnType<typeof appFor>, trip: string, tid: string) =>
+  app.request(`/trips/${trip}/settlement/transfers/${tid}/mark-unpaid`, { method: "POST" });
+const unlock = (app: ReturnType<typeof appFor>, trip: string) =>
+  app.request(`/trips/${trip}/settlement/unlock`, { method: "POST" });
 
 describe("settlement 라우트", () => {
   it("GET → 200·transfers, admin finalize → 200·finalized", async () => {
@@ -95,5 +105,69 @@ describe("settlement 라우트", () => {
     });
     expect(res.status).toBe(200);
     expect(((await res.json()) as { payment_status: string }).payment_status).toBe("paid");
+  });
+
+  it("mark-unpaid: 수취인 → 200(pending), 회귀: 이후 unlock 가능", async () => {
+    const { trip, u } = await scene();
+    const app = appFor(u);
+    await finalize(app, trip, await getSeen(app, trip));
+    const tid = await aTid(trip);
+    await markPaid(app, trip, tid); // admin=수취인
+    const res = await markUnpaid(app, trip, tid);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { payment_status: string }).payment_status).toBe("pending");
+    expect((await unlock(app, trip)).status).toBe(200); // reversal로 paid 없음 → unlock 가능
+  });
+  it("mark-unpaid: 비수취인·비admin(member) → 403", async () => {
+    const { trip, u, u2 } = await scene();
+    const app = appFor(u);
+    await finalize(app, trip, await getSeen(app, trip));
+    const tid = await aTid(trip);
+    await markPaid(app, trip, tid);
+    expect((await markUnpaid(appFor(u2), trip, tid)).status).toBe(403); // u2=member, 수취인 아님
+  });
+  it("mark-unpaid: 미존재 transfer → 404", async () => {
+    const { trip, u } = await scene();
+    const app = appFor(u);
+    await finalize(app, trip, await getSeen(app, trip));
+    const res = await markUnpaid(app, trip, "11111111-1111-4111-8111-111111111111");
+    expect(res.status).toBe(404);
+  });
+  it("mark-unpaid: finalized 아님(unlock 후) → 409", async () => {
+    const { trip, u } = await scene();
+    const app = appFor(u);
+    await finalize(app, trip, await getSeen(app, trip));
+    const tid = await aTid(trip);
+    await unlock(app, trip); // pending이라 가능
+    expect((await markUnpaid(app, trip, tid)).status).toBe(409);
+  });
+  it("GET history: 재확정 후 2건(v2 active, v1 superseded)", async () => {
+    const { trip, u } = await scene();
+    const app = appFor(u);
+    await finalize(app, trip, await getSeen(app, trip));
+    await unlock(app, trip);
+    await finalize(app, trip, await getSeen(app, trip));
+    const res = await app.request(`/trips/${trip}/settlement/history`);
+    expect(res.status).toBe(200);
+    const h = (await res.json()) as { version: number; status: string }[];
+    expect(h.map((x) => [x.version, x.status])).toEqual([
+      [2, "active"],
+      [1, "superseded"],
+    ]);
+  });
+  it("GET events: paid→unpaid 후 2건, 타 transfer → 404", async () => {
+    const { trip, u } = await scene();
+    const app = appFor(u);
+    await finalize(app, trip, await getSeen(app, trip));
+    const tid = await aTid(trip);
+    await markPaid(app, trip, tid);
+    await markUnpaid(app, trip, tid);
+    const res = await app.request(`/trips/${trip}/settlement/transfers/${tid}/events`);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as unknown[]).length).toBe(2);
+    const nf = await app.request(
+      `/trips/${trip}/settlement/transfers/11111111-1111-4111-8111-111111111111/events`,
+    );
+    expect(nf.status).toBe(404);
   });
 });

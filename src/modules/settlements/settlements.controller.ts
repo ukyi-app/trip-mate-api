@@ -11,6 +11,8 @@ import {
   settlementResponseSchema,
   precheckResponseSchema,
   finalizeRequestSchema,
+  settlementHistoryEntrySchema,
+  transferEventSchema,
 } from "./settlements.schema.ts";
 import type { SettlementsService } from "./settlements.service.ts";
 
@@ -31,6 +33,9 @@ const jsonBody = <S extends z.ZodTypeAny>(schema: S) => ({
 const markPaidResponse = z
   .object({ transferId: z.string(), payment_status: z.string() })
   .openapi("MarkPaidResult");
+const markUnpaidResponse = z
+  .object({ transferId: z.string(), payment_status: z.string() })
+  .openapi("MarkUnpaidResult");
 
 export function registerSettlementRoutes(app: OpenAPIHono, deps: Deps): void {
   const auth = requireAuth(deps.resolver);
@@ -117,6 +122,49 @@ export function registerSettlementRoutes(app: OpenAPIHono, deps: Deps): void {
     async (c) => {
       const { tripId, transferId } = c.req.valid("param");
       return c.json(await deps.settlementsService.markPaid(tripId, transferId, actorOf(c)), 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/trips/{tripId}/settlement/transfers/{transferId}/mark-unpaid",
+      security: [{ cookieAuth: [] }],
+      middleware: [auth, member, ...idem],
+      request: { params: z.object({ tripId: z.string().uuid(), transferId: z.string().uuid() }) },
+      responses: { ...ok(markUnpaidResponse), ...errorResponses(403, 404, 409) },
+    }),
+    async (c) => {
+      const { tripId, transferId } = c.req.valid("param");
+      return c.json(await deps.settlementsService.markUnpaid(tripId, transferId, actorOf(c)), 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/trips/{tripId}/settlement/history",
+      security: [{ cookieAuth: [] }],
+      middleware: [auth, member],
+      request: { params: z.object({ tripId: z.string().uuid() }) },
+      responses: { ...ok(z.array(settlementHistoryEntrySchema)), ...errorResponses(403, 404) },
+    }),
+    async (c) =>
+      c.json(await deps.settlementsService.settlementHistory(c.req.valid("param").tripId), 200),
+  );
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/trips/{tripId}/settlement/transfers/{transferId}/events",
+      security: [{ cookieAuth: [] }],
+      middleware: [auth, member],
+      request: { params: z.object({ tripId: z.string().uuid(), transferId: z.string().uuid() }) },
+      responses: { ...ok(z.array(transferEventSchema)), ...errorResponses(403, 404) },
+    }),
+    async (c) => {
+      const { tripId, transferId } = c.req.valid("param");
+      return c.json(await deps.settlementsService.transferEvents(tripId, transferId), 200);
     },
   );
 }
