@@ -2,6 +2,7 @@ import IoRedis from "ioredis";
 import { cors } from "hono/cors";
 import { eq } from "drizzle-orm";
 import { createApp } from "./core/openapi.ts";
+import { registerErrorFilter } from "./core/errors.ts";
 import { createCore } from "./core/composition.ts";
 import { enforceHostCookie } from "./core/host-cookie.ts";
 import { createAuth } from "./auth.ts";
@@ -29,6 +30,9 @@ const core = createCore();
 await runMigrations(core.config.MIGRATE_DATABASE_URL ?? core.config.DATABASE_URL);
 
 const app = createApp();
+// 루트 앱 onError — app.route("/", v1)로 마운트하면 에러는 루트 onError로 전파(Hono).
+// 누락 시 v1의 모든 AppError(403/404/409/422-throw)가 500이 된다(마운트 합성 버그). v1의 필터는 standalone(테스트)용.
+registerErrorFilter(app);
 const redisUrl = core.config.REDIS_URL ?? core.config.VALKEY_URL; // 계약 키 우선, 로컬 별칭 폴백
 if (!redisUrl) throw new Error("REDIS_URL(또는 VALKEY_URL) 필요");
 const redis = new IoRedis(redisUrl); // auth secondaryStorage·FX 캐시(멱등은 DB로 이전)
