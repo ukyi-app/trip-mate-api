@@ -12,6 +12,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -54,6 +55,7 @@ export const expenses = pgTable(
     refund_of_expense_id: uuid(), // §47.1 — composite FK (trip_id, …) → expenses
     version: integer().notNull().default(0), // 낙관적 잠금 §31.6
     deleted_at: timestamp({ withTimezone: true }), // soft delete
+    idempotency_key: text(), // 멱등 마커(§5) — create tx 내 (trip_id,key) unique로 지출 생성 중복 원자 차단
     ...timestamps,
   },
   (t) => [
@@ -107,6 +109,11 @@ export const expenses = pgTable(
       foreignColumns: [t.trip_id, t.id],
     }), // 환불 same-trip 자기참조
     index("ix_exp_refund").on(t.refund_of_expense_id),
+    // 멱등 dedup(§5·idempotency ADR): 라이브 지출의 (trip_id, idempotency_key) 유일 → 생성 중복 원자 차단.
+    // 부분 인덱스: key 없는 생성(null)·soft-delete 행은 제외(키 재사용 가능).
+    uniqueIndex("uq_expense_idem")
+      .on(t.trip_id, t.idempotency_key)
+      .where(sql`idempotency_key IS NOT NULL AND deleted_at IS NULL`),
   ],
 );
 

@@ -83,6 +83,7 @@ export function registerExpenseRoutes(app: OpenAPIHono, deps: Deps): void {
         c.req.valid("param").tripId,
         c.req.valid("json"),
         { memberId: c.get("membership").id },
+        c.req.header("idempotency-key"), // 멱등 마커(미들웨어 미스/크래시-갭에도 DB-레벨 dedup)
       );
       return c.json(toResponse(row), 200);
     },

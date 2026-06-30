@@ -118,11 +118,13 @@ export class ExpensesService<T extends Record<string, unknown>> {
       exchange_rate_table_date: string | null;
       exchange_rate_fetched_at: Date | null;
     },
+    idempotencyKey: string | undefined,
   ): Promise<ExpenseRow> {
     try {
       const { id } = await this.repo.create({
         trip_id: tripId,
         timezone: trip.tz,
+        idempotency_key: idempotencyKey ?? null,
         title: input.title,
         local_amount: BigInt(input.local_amount),
         local_currency: input.local_currency,
@@ -156,19 +158,27 @@ export class ExpensesService<T extends Record<string, unknown>> {
     tripId: string,
     input: CreateExpense,
     actor: ExpenseActor,
+    idempotencyKey?: string,
   ): Promise<ExpenseRow> {
     const trip = await this.assertTripOpen(tripId);
     // card_billed: 카드 청구액=정산액, FX 해석 우회(설계 §2)
     if (input.card_billed_settlement_amount !== undefined) {
-      return this.persist(tripId, trip, input, actor, {
-        settlement_amount: BigInt(input.card_billed_settlement_amount),
-        settlement_amount_source: "card_billed",
-        exchange_rate: null,
-        exchange_rate_source: null,
-        exchange_rate_provider: null,
-        exchange_rate_table_date: null,
-        exchange_rate_fetched_at: null,
-      });
+      return this.persist(
+        tripId,
+        trip,
+        input,
+        actor,
+        {
+          settlement_amount: BigInt(input.card_billed_settlement_amount),
+          settlement_amount_source: "card_billed",
+          exchange_rate: null,
+          exchange_rate_source: null,
+          exchange_rate_provider: null,
+          exchange_rate_table_date: null,
+          exchange_rate_fetched_at: null,
+        },
+        idempotencyKey,
+      );
     }
     const fx = await this.resolveExpenseFx({
       tripId,
@@ -181,17 +191,24 @@ export class ExpensesService<T extends Record<string, unknown>> {
     });
     if (!isResolved(fx))
       throw new FxUnresolvedError("exchange rate unresolved; provide manualRate", { tripId });
-    return this.persist(tripId, trip, input, actor, {
-      settlement_amount: fx.settlement_amount,
-      settlement_amount_source: "converted",
-      exchange_rate: fx.exchange_rate,
-      exchange_rate_source: fx.exchange_rate_source,
-      exchange_rate_provider: fx.exchange_rate_provider,
-      exchange_rate_table_date: fx.exchange_rate_table_date,
-      exchange_rate_fetched_at: fx.exchange_rate_fetched_at
-        ? new Date(fx.exchange_rate_fetched_at)
-        : null,
-    });
+    return this.persist(
+      tripId,
+      trip,
+      input,
+      actor,
+      {
+        settlement_amount: fx.settlement_amount,
+        settlement_amount_source: "converted",
+        exchange_rate: fx.exchange_rate,
+        exchange_rate_source: fx.exchange_rate_source,
+        exchange_rate_provider: fx.exchange_rate_provider,
+        exchange_rate_table_date: fx.exchange_rate_table_date,
+        exchange_rate_fetched_at: fx.exchange_rate_fetched_at
+          ? new Date(fx.exchange_rate_fetched_at)
+          : null,
+      },
+      idempotencyKey,
+    );
   }
 
   /** 미영속 미리보기: FX 계산 + 균등분할. needsManual은 구조화 응답(설계 §3, finding #1 pass1). */

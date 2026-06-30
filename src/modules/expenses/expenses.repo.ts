@@ -27,6 +27,7 @@ export interface ExpenseSnapshot {
   paid_by_member_id: string;
   created_by_member_id: string;
   participant_member_ids: string[];
+  idempotency_key?: string | null; // 멱등 마커(§5) — 있으면 trip-lock 하 pre-check로 중복 생성 replay
 }
 export interface ExpenseRow {
   id: string;
@@ -144,10 +145,26 @@ export class DrizzleExpenseRepo<T extends Record<string, unknown>> {
         throw new ConflictError("trip timezone changed during create; retry", {
           tripId: s.trip_id,
         }); // stale tz → 409, 클라 재계산
+      // 멱등 마커 pre-check(trip FOR UPDATE 하 → race-free, idempotency ADR §4 B-특화):
+      // 같은 (trip, key) 라이브 지출이 있으면 새 insert 없이 replay → 크래시-갭 중복 원자 차단.
+      if (s.idempotency_key) {
+        const dup = await tx
+          .select({ id: expenses.id, version: expenses.version })
+          .from(expenses)
+          .where(
+            and(
+              eq(expenses.trip_id, s.trip_id),
+              eq(expenses.idempotency_key, s.idempotency_key),
+              isNull(expenses.deleted_at),
+            ),
+          );
+        if (dup[0]) return dup[0];
+      }
       const rows = await tx
         .insert(expenses)
         .values({
           trip_id: s.trip_id,
+          idempotency_key: s.idempotency_key ?? null,
           title: s.title,
           local_amount: s.local_amount,
           local_currency: s.local_currency,

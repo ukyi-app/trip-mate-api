@@ -67,6 +67,31 @@ describe("DrizzleExpenseRepo", () => {
     expect(found?.settlement_amount).toBe(350000n);
     expect(found?.participant_member_ids).toEqual([memberId]);
   });
+  it("멱등 마커: 같은 (trip, idempotency_key) 재생성 → replay·중복 차단", async () => {
+    const { trip, memberId } = await setup();
+    const repo = new DrizzleExpenseRepo(ctx.db);
+    const a = await repo.create(mk(trip, memberId, { idempotency_key: "idem-1" }));
+    const b = await repo.create(mk(trip, memberId, { idempotency_key: "idem-1" }));
+    expect(b.id).toBe(a.id); // 같은 지출 replay
+    const cnt = await ctx.sql<
+      { n: number }[]
+    >`select count(*)::int as n from expenses where trip_id=${trip}`;
+    expect(cnt[0]!.n).toBe(1); // 새 insert 없음
+  });
+  it("멱등 마커: 다른 키 → 별개 지출", async () => {
+    const { trip, memberId } = await setup();
+    const repo = new DrizzleExpenseRepo(ctx.db);
+    const a = await repo.create(mk(trip, memberId, { idempotency_key: "k-a" }));
+    const b = await repo.create(mk(trip, memberId, { idempotency_key: "k-b" }));
+    expect(b.id).not.toBe(a.id);
+  });
+  it("멱등 마커 없음(null) → 매번 신규(partial unique 제외)", async () => {
+    const { trip, memberId } = await setup();
+    const repo = new DrizzleExpenseRepo(ctx.db);
+    const a = await repo.create(mk(trip, memberId));
+    const b = await repo.create(mk(trip, memberId));
+    expect(b.id).not.toBe(a.id);
+  });
   it("updateMeta CAS: version 일치 시 +1, 불일치 0행", async () => {
     const { trip, memberId } = await setup();
     const repo = new DrizzleExpenseRepo(ctx.db);

@@ -284,4 +284,30 @@ describe("expenses 라우트", () => {
     const res = await appFor(u).request(`/trips/${trip}/expenses?category=bogus`);
     expect(res.status).toBe(422);
   });
+
+  it("멱등 마커: 같은 Idempotency-Key 두 번 POST → 같은 지출(미들웨어 off에서도 DB dedup)", async () => {
+    const { u, trip, memberId } = await setup();
+    const app = appFor(u); // idempotencyStore: null → 미들웨어 비활성, in-tx 마커만 작동
+    const payload = JSON.stringify(body(memberId));
+    const headers = { "content-type": "application/json", "idempotency-key": "dup-key-1" };
+    const r1 = await app.request(`/trips/${trip}/expenses`, {
+      method: "POST",
+      headers,
+      body: payload,
+    });
+    const r2 = await app.request(`/trips/${trip}/expenses`, {
+      method: "POST",
+      headers,
+      body: payload,
+    });
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    const id1 = ((await r1.json()) as { id: string }).id;
+    const id2 = ((await r2.json()) as { id: string }).id;
+    expect(id2).toBe(id1); // 중복 생성 안 됨 — 기존 지출 replay
+    const list = (await (await app.request(`/trips/${trip}/expenses`)).json()) as {
+      items: unknown[];
+    };
+    expect(list.items.length).toBe(1);
+  });
 });
