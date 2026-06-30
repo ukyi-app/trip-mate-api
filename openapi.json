@@ -576,6 +576,27 @@
           "per_member"
         ]
       },
+      "ExpenseList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Expense"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ]
+      },
       "UpdateExpense": {
         "type": "object",
         "properties": {
@@ -1624,6 +1645,79 @@
             "required": false,
             "name": "limit",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "food",
+                "cafe_snack",
+                "transport",
+                "lodging",
+                "shopping",
+                "sightseeing",
+                "convenience",
+                "other"
+              ]
+            },
+            "required": false,
+            "name": "category",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "cash",
+                "card",
+                "transit_card",
+                "easy_pay",
+                "other"
+              ]
+            },
+            "required": false,
+            "name": "payment_method",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 3
+            },
+            "required": false,
+            "name": "currency",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "member",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "included",
+                "personal",
+                "record_only"
+              ]
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
           }
         ],
         "responses": {
@@ -1632,16 +1726,23 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Expense"
-                  }
+                  "$ref": "#/components/schemas/ExpenseList"
                 }
               }
             }
           },
           "403": {
             "description": "403 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "422 problem+json",
             "content": {
               "application/problem+json": {
                 "schema": {

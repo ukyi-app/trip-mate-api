@@ -132,7 +132,27 @@ export const fxDefaultRequestSchema = z
   })
   .openapi("SetTripFxDefault");
 
+// 목록 쿼리(api-contract §6): keyset 커서 + limit + 필터. currency=local_currency.
+export const listExpensesQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+  category: z.enum(CATEGORY).optional(),
+  payment_method: z.enum(PAYMENT).optional(),
+  currency: z.string().length(3).optional(),
+  member: z.string().uuid().optional(),
+  state: z.enum(STATE).optional(),
+});
+
+// 목록 응답: items + 다음 페이지 커서(없으면 null = 마지막 페이지).
+export const expenseListResponseSchema = z
+  .object({
+    items: z.array(expenseResponseSchema),
+    next_cursor: z.string().nullable(),
+  })
+  .openapi("ExpenseList");
+
 export type ExpenseResponse = z.infer<typeof expenseResponseSchema>;
+export type ListExpensesQuery = z.infer<typeof listExpensesQuerySchema>;
 export type CreateExpense = z.infer<typeof createExpenseSchema>;
 export type UpdateExpense = z.infer<typeof updateExpenseSchema>;
 export type PreviewResponse = z.infer<typeof previewResponseSchema>;

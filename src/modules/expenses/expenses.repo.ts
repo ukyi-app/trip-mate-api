@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, desc, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, desc, or, sql, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { expenses, expenseParticipants, expenseAuditLogs } from "../../db/schema/expenses.ts";
 import { trips } from "../../db/schema/trips.ts";
@@ -47,6 +47,19 @@ export interface ExpenseRow {
   memo: string | null;
   version: number;
   participant_member_ids: string[];
+}
+// 목록 필터(api-contract §6). currency=local_currency(지출별 통화), member=결제자 OR 참여자.
+export interface ExpenseListFilters {
+  category?: string | undefined;
+  payment_method?: string | undefined;
+  currency?: string | undefined;
+  member?: string | undefined;
+  state?: ("included" | "personal" | "record_only") | undefined;
+}
+export interface ExpenseListParams {
+  limit: number;
+  cursor?: { spentAt: Date; id: string } | undefined; // 마지막 행의 (spent_at, id)
+  filters?: ExpenseListFilters | undefined;
 }
 export interface MetaPatch {
   title?: string | undefined;
@@ -214,18 +227,55 @@ export class DrizzleExpenseRepo<T extends Record<string, unknown>> {
     return { ...row, participant_member_ids: parts.get(id) ?? [] } as ExpenseRow;
   }
 
-  async listForTrip(tripId: string, limit: number): Promise<ExpenseRow[]> {
-    const rows = await this.db
+  /** keyset 페이지네이션(§6): 정렬 (spent_at desc, id desc), 커서=(spent_at,id) 미만.
+   *  limit+1 조회로 hasMore 판정(다음 커서 발급 여부). 필터는 AND 결합, member는 결제자∪참여자. */
+  async listForTrip(
+    tripId: string,
+    params: ExpenseListParams,
+  ): Promise<{ rows: ExpenseRow[]; hasMore: boolean }> {
+    const { limit, cursor, filters } = params;
+    const conds: (SQL | undefined)[] = [eq(expenses.trip_id, tripId), isNull(expenses.deleted_at)];
+    if (filters?.category) conds.push(eq(expenses.category, filters.category));
+    if (filters?.payment_method) conds.push(eq(expenses.payment_method, filters.payment_method));
+    if (filters?.currency) conds.push(eq(expenses.local_currency, filters.currency));
+    if (filters?.state) conds.push(eq(expenses.expense_settlement_state, filters.state));
+    if (filters?.member) {
+      // 결제자 OR 참여자(ix_part_member 활용). 비상관 IN 서브쿼리.
+      const participatedIds = this.db
+        .select({ id: expenseParticipants.expense_id })
+        .from(expenseParticipants)
+        .where(
+          and(
+            eq(expenseParticipants.trip_id, tripId),
+            eq(expenseParticipants.member_id, filters.member),
+          ),
+        );
+      conds.push(
+        or(eq(expenses.paid_by_member_id, filters.member), inArray(expenses.id, participatedIds)),
+      );
+    }
+    if (cursor) {
+      // row-value 비교: (spent_at,id) < (cursor) ≡ spent_at< OR (=, id<). desc 정렬과 정합.
+      conds.push(
+        sql`(${expenses.spent_at}, ${expenses.id}) < (${cursor.spentAt.toISOString()}::timestamptz, ${cursor.id}::uuid)`,
+      );
+    }
+    const fetched = await this.db
       .select(COLS)
       .from(expenses)
-      .where(and(eq(expenses.trip_id, tripId), isNull(expenses.deleted_at)))
+      .where(and(...conds))
       .orderBy(desc(expenses.spent_at), desc(expenses.id))
-      .limit(limit);
+      .limit(limit + 1);
+    const hasMore = fetched.length > limit;
+    const rows = hasMore ? fetched.slice(0, limit) : fetched;
     const parts = await this.participantsOf(rows.map((r) => r.id));
-    return rows.map((r) => ({
-      ...r,
-      participant_member_ids: parts.get(r.id) ?? [],
-    })) as ExpenseRow[];
+    return {
+      rows: rows.map((r) => ({
+        ...r,
+        participant_member_ids: parts.get(r.id) ?? [],
+      })) as ExpenseRow[],
+      hasMore,
+    };
   }
 
   /** version CAS UPDATE(메타만) + 참여자 재설정 + audit(update, before/after 전체 스냅샷). 0행이면 null. */

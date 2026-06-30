@@ -13,8 +13,14 @@ import { resolveFx, type FxDeps } from "../fx/fx.service.ts";
 import { isResolved, type FxInput, type FxResult } from "../fx/fx.types.ts";
 import { splitExpense } from "../settlements/domain/compute.ts";
 import { minor, type CurrencyCode, type MemberId } from "../../core/money.ts";
-import type { DrizzleExpenseRepo, ExpenseRow, MetaPatch } from "./expenses.repo.ts";
+import type {
+  DrizzleExpenseRepo,
+  ExpenseRow,
+  MetaPatch,
+  ExpenseListFilters,
+} from "./expenses.repo.ts";
 import type { CreateExpense, UpdateExpense, PreviewResponse } from "./expenses.schema.ts";
+import { decodeCursor, encodeCursor } from "./cursor.ts";
 
 export interface ExpenseActor {
   memberId: string;
@@ -258,8 +264,26 @@ export class ExpensesService<T extends Record<string, unknown>> {
     };
   }
 
-  async listExpenses(tripId: string, limit: number): Promise<ExpenseRow[]> {
-    return this.repo.listForTrip(tripId, Math.min(Math.max(limit, 1), 100));
+  /** keyset 목록(§6). cursor 디코드(불량 → ValidationError 422), next_cursor 발급(hasMore일 때만). */
+  async listExpenses(
+    tripId: string,
+    params: {
+      limit: number;
+      cursor?: string | undefined;
+      filters?: ExpenseListFilters | undefined;
+    },
+  ): Promise<{ items: ExpenseRow[]; nextCursor: string | null }> {
+    const limit = Math.min(Math.max(params.limit, 1), 100);
+    const decoded = params.cursor ? decodeCursor(params.cursor) : undefined;
+    const { rows, hasMore } = await this.repo.listForTrip(tripId, {
+      limit,
+      ...(decoded ? { cursor: decoded } : {}),
+      ...(params.filters ? { filters: params.filters } : {}),
+    });
+    const last = rows.at(-1);
+    const nextCursor =
+      hasMore && last ? encodeCursor({ spent_at: last.spent_at, id: last.id }) : null;
+    return { items: rows, nextCursor };
   }
   async getExpense(tripId: string, id: string): Promise<ExpenseRow> {
     const row = await this.repo.findById(tripId, id);

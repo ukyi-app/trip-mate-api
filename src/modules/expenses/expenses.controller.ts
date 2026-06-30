@@ -12,6 +12,8 @@ import { parsePositiveRate } from "../fx/domain/convert.ts";
 import type { TripDefaultsPort } from "../fx/fx.types.ts";
 import {
   expenseResponseSchema,
+  expenseListResponseSchema,
+  listExpensesQuerySchema,
   createExpenseSchema,
   updateExpenseSchema,
   previewResponseSchema,
@@ -114,20 +116,30 @@ export function registerExpenseRoutes(app: OpenAPIHono, deps: Deps): void {
       middleware: [auth, member],
       request: {
         params: z.object({ tripId: z.string().uuid() }),
-        query: z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }),
+        query: listExpensesQuerySchema,
       },
-      responses: { ...ok(z.array(expenseResponseSchema)), ...errorResponses(403) },
+      responses: { ...ok(expenseListResponseSchema), ...errorResponses(403, 422) },
     }),
-    async (c) =>
-      c.json(
-        (
-          await deps.expensesService.listExpenses(
-            c.req.valid("param").tripId,
-            c.req.valid("query").limit,
-          )
-        ).map(toResponse),
-        200,
-      ),
+    async (c) => {
+      const {
+        limit,
+        cursor,
+        category,
+        payment_method,
+        currency,
+        member: memberFilter,
+        state,
+      } = c.req.valid("query");
+      const { items, nextCursor } = await deps.expensesService.listExpenses(
+        c.req.valid("param").tripId,
+        {
+          limit,
+          ...(cursor !== undefined ? { cursor } : {}),
+          filters: { category, payment_method, currency, member: memberFilter, state },
+        },
+      );
+      return c.json({ items: items.map(toResponse), next_cursor: nextCursor }, 200);
+    },
   );
 
   app.openapi(
