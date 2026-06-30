@@ -16,9 +16,10 @@
 | 이미지 | `ghcr.io/ukyi-app/trip-mate-api`(linux/arm64) | `reusable-app-build.yaml` |
 
 **앱이 요구하는 env 키**(SealedSecret으로 주입 — envFrom):
-- `DATABASE_URL` (런타임, 권장 pgbouncer 풀러)
-- `MIGRATE_DATABASE_URL` (선택; boot 마이그레이션 직결 — 비우면 `DATABASE_URL` 사용. **풀러는 DDL 비호환**이라 prod는 `pg-rw` 직결 권장)
-- `REDIS_URL` (세션·FX 캐시; 로컬 별칭 `VALKEY_URL`)
+앱은 **prefixed conn 핸들 키를 그대로** 읽는다(generic 폴백 없음). 키 = `create-database`/`create-cache` 산출명을 UPPER_SNAKE한 것. ⚠️ **DB·캐시 이름은 반드시 `trip-mate`** 로 만들어야 키가 `TRIP_MATE_*`가 되어 앱과 일치한다(`trip-mate-api`로 만들면 `TRIP_MATE_API_*`가 되어 불일치).
+- `TRIP_MATE_DATABASE_URL` (런타임, pgbouncer 풀러) — create-database(name=trip-mate) 산출
+- `TRIP_MATE_MIGRATE_DATABASE_URL` (선택; boot 마이그레이션 직결 pg-rw — 비우면 `TRIP_MATE_DATABASE_URL` 사용. **풀러는 DDL 비호환**이라 prod는 직결 권장)
+- `TRIP_MATE_REDIS_URL` (세션·FX 캐시) — create-cache(name=trip-mate) 산출
 - `BETTER_AUTH_SECRET`(≥32자)·`BETTER_AUTH_URL`·`WEB_ORIGINS`·`USE_SECURE_COOKIES=true`·`INVITE_TOKEN_TTL_HOURS`
 - 선택: `GOOGLE_CLIENT_ID/SECRET`, `OXR_APP_ID`, `CURRENCYAPI_KEY`
 
@@ -27,22 +28,21 @@
 ### 0) 앱 레포 `ukyi-app/trip-mate-api`
 이 레포를 `ukyi-app/trip-mate-api`로 푸시(템플릿 `ukyi-app/homelab-app-template` 관례 정합: `.app-config.yml`·`Dockerfile` 준비됨). main push → `reusable-app-build.yaml@main`이 arm64 이미지를 GHCR에 push(digest 핀).
 
-### 1) DB 프로비전 — homelab 디스패처 `create-database` (name=`trip-mate-api`)
-공유 CNPG `pg`(ns `database`)에 논리 DB + owner/ro role 생성(PR). 산출 conn은 `platform/data-conn/prod/`(ns `prod`).
+### 1) DB 프로비전 — homelab 디스패처 `create-database` (**name=`trip-mate`**)
+> ⚠️ 이름은 반드시 `trip-mate`(앱이 `TRIP_MATE_*`를 읽음). `trip-mate-api`로 만들면 키가 `TRIP_MATE_API_*`가 되어 불일치. 확장은 선택하지 않음(앱은 확장 불요 — 별도 안내 참조).
+
+공유 CNPG `pg`(ns `database`)에 논리 DB + owner/ro role 생성(PR). 산출 conn 핸들 `db-trip-mate-conn`(ns `prod`)에 **`TRIP_MATE_DATABASE_URL`(풀러)·`TRIP_MATE_MIGRATE_DATABASE_URL`(직결)·`TRIP_MATE_RO_DATABASE_URL`** 키.
 - 접속: 런타임 `pg-pooler-rw.database.svc.cluster.local:5432`, 마이그레이션/ro `pg-rw.database.svc.cluster.local:5432`.
 
-### 2) 캐시 프로비전 — 디스패처 `create-cache` (name=`trip-mate-api`)
-앱별 Valkey 인스턴스(ns `cache`) 생성(PR). 접속 `trip-mate-api.cache.svc.cluster.local:6379`.
+### 2) 캐시 프로비전 — 디스패처 `create-cache` (**name=`trip-mate`**, maxmemory 비움=64Mi)
+Valkey 인스턴스(ns `cache`) 생성(PR). 산출 `cache-trip-mate-conn`(ns `prod`)에 **`TRIP_MATE_REDIS_URL`** 키. 접속 `trip-mate.cache.svc.cluster.local:6379`.
 
 ### 3) 앱 시크릿 봉인(`trip-mate-api-secrets`, ns `prod`)
-앱 레포에서 `.env`→`pnpm secret:seal`로 `trip-mate-api-secrets.sealed.yaml` 생성. **A절 env 키를 UPPER_SNAKE로** 포함:
-- `DATABASE_URL`=풀러 conn, `MIGRATE_DATABASE_URL`=pg-rw 직결 conn, `REDIS_URL`=Valkey conn (1·2단계 산출 자격으로 구성)
-- + `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL`/`WEB_ORIGINS`/`USE_SECURE_COOKIES=true`/`INVITE_TOKEN_TTL_HOURS` (+선택 키)
-
-> **계약 정합 주의:** app-config 스키마(v2)는 "앱 SealedSecret의 `DATABASE_URL`/`REDIS_URL`로 주입"이 SSOT다. 앱은 그 **generic 키**(`DATABASE_URL`/`REDIS_URL`/`MIGRATE_DATABASE_URL`)를 읽는다. `create-database`가 `TRIP_MATE_API_DATABASE_URL` 같은 **prefixed conn 핸들**(example-api 패턴)을 만들면, 그 값을 위 generic 키로 `trip-mate-api-secrets`에 봉인하거나 values.yaml envFrom 매핑으로 정합시킨다.
+앱 레포에서 `.env`→`pnpm secret:seal`로 `trip-mate-api-secrets.sealed.yaml` 생성. **DB/Redis URL은 넣지 않는다**(1·2단계 conn 핸들이 envFrom로 공급). 이 시크릿엔 앱 설정만:
+- `BETTER_AUTH_SECRET`(≥32자)·`BETTER_AUTH_URL`·`WEB_ORIGINS`·`USE_SECURE_COOKIES=true`·`INVITE_TOKEN_TTL_HOURS` (+선택 `GOOGLE_*`/`OXR_APP_ID`/`CURRENCYAPI_KEY`)
 
 ### 4) 앱 온보딩 — 디스패처 `create-app` (app=`trip-mate-api`)
-`apps/trip-mate-api/deploy/prod/`(values.yaml·kustomization.yaml·source-repo·.bindings.json·sealed) 생성(PR, `apps/example-api/` 미러). values.yaml `envFrom`에 `trip-mate-api-secrets`(+사용 시 conn 핸들) 배선, `route.host: trip-mate-api.home.ukyi.app`, `public: false`. 내부 전용이라 `activate-app`(공개 DNS)·`infra/cloudflare/apps.json` 불요.
+`apps/trip-mate-api/deploy/prod/`(values.yaml·kustomization.yaml·source-repo·.bindings.json·sealed) 생성(PR, `apps/example-api/` 미러). values.yaml `envFrom`에 **`trip-mate-api-secrets` + `db-trip-mate-conn` + `cache-trip-mate-conn`** 배선(conn 핸들 envFrom은 example-api처럼 직접 추가), `route.host: trip-mate-api.home.ukyi.app`, `public: false`. 내부 전용이라 `activate-app`(공개 DNS)·`infra/cloudflare/apps.json` 불요.
 
 ### 5) PR 머지 → ArgoCD 싱크 → 검증(owner, 클러스터)
 - 파드 Running, **boot 마이그레이션 로그** 확인, `/health`·`/ready` 200
