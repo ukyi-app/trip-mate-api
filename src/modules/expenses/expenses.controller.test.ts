@@ -80,7 +80,8 @@ describe("expenses 라우트", () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as { per_member: unknown[] }).per_member.length).toBe(1);
     expect(
-      ((await (await appFor(u).request(`/trips/${trip}/expenses`)).json()) as unknown[]).length,
+      ((await (await appFor(u).request(`/trips/${trip}/expenses`)).json()) as { items: unknown[] })
+        .items.length,
     ).toBe(0); // 미영속
   });
   it("preview: 미지/타-trip member_id → 422(멤버십 검증, finding #2 pass2)", async () => {
@@ -105,7 +106,7 @@ describe("expenses 라우트", () => {
     };
     expect(exp.settlement_amount).toBe("37900");
     const list = await app.request(`/trips/${trip}/expenses`);
-    expect(((await list.json()) as unknown[]).length).toBe(1);
+    expect(((await list.json()) as { items: unknown[] }).items.length).toBe(1);
     expect((await app.request(`/trips/${trip}/expenses/${exp.id}`)).status).toBe(200);
   });
   it("비멤버 → 403", async () => {
@@ -193,5 +194,94 @@ describe("expenses 라우트", () => {
       });
       expect(res.status).toBe(422);
     }
+  });
+
+  it("GET 목록: {items, next_cursor} 커서 페이징(무중복·무누락)", async () => {
+    const { u, trip, memberId } = await setup();
+    const app = appFor(u);
+    const made: string[] = [];
+    for (const min of ["01", "02", "03"]) {
+      const r = await app.request(`/trips/${trip}/expenses`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body(memberId, { spent_at: `2026-08-02T12:${min}:00.000Z` })),
+      });
+      made.push(((await r.json()) as { id: string }).id);
+    }
+    const p1 = (await (await app.request(`/trips/${trip}/expenses?limit=2`)).json()) as {
+      items: { id: string }[];
+      next_cursor: string | null;
+    };
+    expect(p1.items.length).toBe(2);
+    expect(p1.next_cursor).not.toBeNull();
+    const p2 = (await (
+      await app.request(
+        `/trips/${trip}/expenses?limit=2&cursor=${encodeURIComponent(p1.next_cursor as string)}`,
+      )
+    ).json()) as { items: { id: string }[]; next_cursor: string | null };
+    expect(p2.items.length).toBe(1);
+    expect(p2.next_cursor).toBeNull();
+    const seen = [...p1.items, ...p2.items].map((e) => e.id);
+    expect(new Set(seen).size).toBe(3); // 무중복
+    expect([...seen].sort()).toEqual([...made].sort()); // 무누락
+  });
+
+  it("GET 목록: 디코드 불가 커서 → 422", async () => {
+    const { u, trip } = await setup();
+    const res = await appFor(u).request(`/trips/${trip}/expenses?cursor=not_a_valid_cursor`);
+    expect(res.status).toBe(422);
+  });
+
+  it("GET 목록: category 필터 end-to-end", async () => {
+    const { u, trip, memberId } = await setup();
+    const app = appFor(u);
+    await app.request(`/trips/${trip}/expenses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body(memberId, { category: "food" })),
+    });
+    await app.request(`/trips/${trip}/expenses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        body(memberId, { category: "transport", spent_at: "2026-08-02T13:00:00.000Z" }),
+      ),
+    });
+    const res = (await (
+      await app.request(`/trips/${trip}/expenses?category=transport`)
+    ).json()) as { items: unknown[] };
+    expect(res.items.length).toBe(1);
+  });
+
+  it("GET 목록: member 필터(참여자) end-to-end", async () => {
+    const { u, trip, memberId } = await setup();
+    const app = appFor(u);
+    const u2 = await mkUser(ctx.sql);
+    const m2 = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+    await app.request(`/trips/${trip}/expenses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body(memberId, { spent_at: "2026-08-02T12:01:00.000Z" })),
+    }); // 참여 [m1]
+    await app.request(`/trips/${trip}/expenses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        body(memberId, {
+          spent_at: "2026-08-02T12:02:00.000Z",
+          participant_member_ids: [memberId, m2],
+        }),
+      ),
+    }); // 참여 [m1, m2]
+    const res = (await (await app.request(`/trips/${trip}/expenses?member=${m2}`)).json()) as {
+      items: unknown[];
+    };
+    expect(res.items.length).toBe(1); // m2가 참여한 지출만
+  });
+
+  it("GET 목록: 잘못된 필터 enum → 422", async () => {
+    const { u, trip } = await setup();
+    const res = await appFor(u).request(`/trips/${trip}/expenses?category=bogus`);
+    expect(res.status).toBe(422);
   });
 });

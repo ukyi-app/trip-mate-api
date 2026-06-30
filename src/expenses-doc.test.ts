@@ -29,6 +29,25 @@ describe("expenses OpenAPI 계약", () => {
     expect(schemas.Expense).toBeDefined();
     expect(schemas.CreateExpense).toBeDefined();
   });
+  it("목록: ExpenseList 응답 스키마 + 커서·필터 쿼리 파라미터(§6)", () => {
+    const d = doc();
+    expect((d.components?.schemas ?? {}).ExpenseList).toBeDefined();
+    const key = Object.keys(d.paths ?? {}).find((p) => p.endsWith("/trips/{tripId}/expenses"));
+    expect(key).toBeDefined();
+    const get = (d.paths as Record<string, { get?: { parameters?: { name: string }[] } }>)[key!]
+      ?.get;
+    const names = (get?.parameters ?? []).map((p) => p.name);
+    for (const n of [
+      "limit",
+      "cursor",
+      "category",
+      "payment_method",
+      "currency",
+      "member",
+      "state",
+    ])
+      expect(names).toContain(n);
+  });
   it("FX 확장 경로·스키마(preview·fx-defaults)", () => {
     const paths = Object.keys(doc().paths ?? {});
     expect(paths.some((p) => p.includes("/expenses/preview"))).toBe(true);
