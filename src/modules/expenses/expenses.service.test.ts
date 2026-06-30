@@ -55,6 +55,17 @@ describe("ExpensesService", () => {
     expect(exp.settlement_amount).toBe(37900n);
     expect(exp.exchange_rate_source).toBe("identity");
   });
+  it("card_billed: settlement_amount=입력값·source=card_billed·rate null", async () => {
+    const { trip, memberId } = await setup("KRW");
+    const exp = await svc().createExpense(
+      trip,
+      input(memberId, { local_currency: "JPY", card_billed_settlement_amount: "350000" }),
+      { memberId },
+    );
+    expect(exp.settlement_amount).toBe(350000n);
+    expect(exp.settlement_amount_source).toBe("card_billed");
+    expect(exp.exchange_rate_source).toBeNull();
+  });
   it("manualRate 제공(현지≠정산) → manual 환산 저장", async () => {
     const { trip, memberId } = await setup("KRW");
     const exp = await svc().createExpense(

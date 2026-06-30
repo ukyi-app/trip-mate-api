@@ -12,13 +12,13 @@ export interface ExpenseSnapshot {
   local_currency: string;
   settlement_amount: bigint;
   settlement_currency: string;
-  exchange_rate: string;
-  exchange_rate_date: string;
-  exchange_rate_source: "identity" | "manual" | "auto" | "last_known" | "trip_default";
+  exchange_rate: string | null; // card_billed면 null
+  exchange_rate_date: string; // NOT NULL(card_billed도 spent_at·tz 파생)
+  exchange_rate_source: "identity" | "manual" | "auto" | "last_known" | "trip_default" | null; // card_billed면 null
   exchange_rate_provider: string | null;
   exchange_rate_table_date: string | null;
   exchange_rate_fetched_at: Date | null;
-  settlement_amount_source: "converted";
+  settlement_amount_source: "converted" | "card_billed";
   payment_method: string;
   category: string;
   spent_at: Date;

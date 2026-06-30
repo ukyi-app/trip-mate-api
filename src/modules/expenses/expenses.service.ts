@@ -9,7 +9,7 @@ import {
   ValidationError,
 } from "../../core/errors.ts";
 import { resolveFx, type FxDeps } from "../fx/fx.service.ts";
-import { isResolved, type FxInput } from "../fx/fx.types.ts";
+import { isResolved, type FxInput, type FxResult } from "../fx/fx.types.ts";
 import { minor, type CurrencyCode } from "../../core/money.ts";
 import type { DrizzleExpenseRepo, ExpenseRow } from "./expenses.repo.ts";
 import type { CreateExpense, UpdateExpense } from "./expenses.schema.ts";
@@ -60,59 +60,73 @@ export class ExpensesService<T extends Record<string, unknown>> {
     return { tz: trip.tz, settle: trip.settle };
   }
 
-  async createExpense(
-    tripId: string,
-    input: CreateExpense,
-    actor: ExpenseActor,
-  ): Promise<ExpenseRow> {
-    // 1) trip(정산통화·timezone) + finalized 가드
-    const trip = await this.assertTripOpen(tripId);
-    // 2) currencies exponent(local·settlement)
+  // exponent 조회 + date 파생 + resolveFx (create·preview·edit 공유, 설계 §6)
+  private async resolveExpenseFx(i: {
+    tripId: string;
+    tz: string;
+    settle: string;
+    local_amount: string;
+    local_currency: string;
+    spent_at: string;
+    manualRate?: string;
+  }): Promise<FxResult> {
     const cur = await this.db
       .select({ code: currencies.code, exp: currencies.minor_unit })
       .from(currencies)
-      .where(inArray(currencies.code, [input.local_currency, trip.settle]));
+      .where(inArray(currencies.code, [i.local_currency, i.settle]));
     const expOf = new Map(cur.map((c) => [c.code, c.exp]));
-    const localExp = expOf.get(input.local_currency);
-    const settleExp = expOf.get(trip.settle);
+    const localExp = expOf.get(i.local_currency);
+    const settleExp = expOf.get(i.settle);
     if (localExp === undefined || settleExp === undefined)
       throw new ValidationError("unknown currency", {
-        local: input.local_currency,
-        settlement: trip.settle,
+        local: i.local_currency,
+        settlement: i.settle,
       });
-    // 3) resolveFx
     const fxInput: FxInput = {
-      localMinor: minor(BigInt(input.local_amount)),
-      localCurrency: input.local_currency as CurrencyCode,
-      settlementCurrency: trip.settle as CurrencyCode,
-      date: localDate(input.spent_at, trip.tz),
+      localMinor: minor(BigInt(i.local_amount)),
+      localCurrency: i.local_currency as CurrencyCode,
+      settlementCurrency: i.settle as CurrencyCode,
+      date: localDate(i.spent_at, i.tz),
       localExp,
       settleExp,
-      tripId,
-      ...(input.manualRate !== undefined ? { manualRate: input.manualRate } : {}),
+      tripId: i.tripId,
+      ...(i.manualRate !== undefined ? { manualRate: i.manualRate } : {}),
     };
-    const fx = await resolveFx(fxInput, this.fxDeps);
-    if (!isResolved(fx))
-      throw new FxUnresolvedError("exchange rate unresolved; provide manualRate", { tripId });
-    // 4) 저장(단일 tx in repo.create)
+    return resolveFx(fxInput, this.fxDeps);
+  }
+
+  // FX 결과(또는 card_billed)로 expense 영속(단일 tx). exchange_rate_date는 spent_at·tz 파생(NOT NULL).
+  private async persist(
+    tripId: string,
+    trip: { tz: string; settle: string },
+    input: CreateExpense,
+    actor: ExpenseActor,
+    fx: {
+      settlement_amount: bigint;
+      settlement_amount_source: "converted" | "card_billed";
+      exchange_rate: string | null;
+      exchange_rate_source: "identity" | "manual" | "auto" | "last_known" | "trip_default" | null;
+      exchange_rate_provider: string | null;
+      exchange_rate_table_date: string | null;
+      exchange_rate_fetched_at: Date | null;
+    },
+  ): Promise<ExpenseRow> {
     try {
       const { id } = await this.repo.create({
         trip_id: tripId,
-        timezone: trip.tz, // FX date 파생에 쓴 tz — repo가 lock 하에 재검증(finding #3 pass3)
+        timezone: trip.tz,
         title: input.title,
         local_amount: BigInt(input.local_amount),
         local_currency: input.local_currency,
         settlement_amount: fx.settlement_amount,
         settlement_currency: trip.settle,
         exchange_rate: fx.exchange_rate,
-        exchange_rate_date: fx.exchange_rate_date,
+        exchange_rate_date: localDate(input.spent_at, trip.tz),
         exchange_rate_source: fx.exchange_rate_source,
         exchange_rate_provider: fx.exchange_rate_provider,
         exchange_rate_table_date: fx.exchange_rate_table_date,
-        exchange_rate_fetched_at: fx.exchange_rate_fetched_at
-          ? new Date(fx.exchange_rate_fetched_at)
-          : null,
-        settlement_amount_source: "converted",
+        exchange_rate_fetched_at: fx.exchange_rate_fetched_at,
+        settlement_amount_source: fx.settlement_amount_source,
         payment_method: input.payment_method,
         category: input.category,
         spent_at: new Date(input.spent_at),
@@ -128,6 +142,48 @@ export class ExpensesService<T extends Record<string, unknown>> {
     } catch (e) {
       return asValidation(e);
     }
+  }
+
+  async createExpense(
+    tripId: string,
+    input: CreateExpense,
+    actor: ExpenseActor,
+  ): Promise<ExpenseRow> {
+    const trip = await this.assertTripOpen(tripId);
+    // card_billed: 카드 청구액=정산액, FX 해석 우회(설계 §2)
+    if (input.card_billed_settlement_amount !== undefined) {
+      return this.persist(tripId, trip, input, actor, {
+        settlement_amount: BigInt(input.card_billed_settlement_amount),
+        settlement_amount_source: "card_billed",
+        exchange_rate: null,
+        exchange_rate_source: null,
+        exchange_rate_provider: null,
+        exchange_rate_table_date: null,
+        exchange_rate_fetched_at: null,
+      });
+    }
+    const fx = await this.resolveExpenseFx({
+      tripId,
+      tz: trip.tz,
+      settle: trip.settle,
+      local_amount: input.local_amount,
+      local_currency: input.local_currency,
+      spent_at: input.spent_at,
+      ...(input.manualRate !== undefined ? { manualRate: input.manualRate } : {}),
+    });
+    if (!isResolved(fx))
+      throw new FxUnresolvedError("exchange rate unresolved; provide manualRate", { tripId });
+    return this.persist(tripId, trip, input, actor, {
+      settlement_amount: fx.settlement_amount,
+      settlement_amount_source: "converted",
+      exchange_rate: fx.exchange_rate,
+      exchange_rate_source: fx.exchange_rate_source,
+      exchange_rate_provider: fx.exchange_rate_provider,
+      exchange_rate_table_date: fx.exchange_rate_table_date,
+      exchange_rate_fetched_at: fx.exchange_rate_fetched_at
+        ? new Date(fx.exchange_rate_fetched_at)
+        : null,
+    });
   }
 
   async listExpenses(tripId: string, limit: number): Promise<ExpenseRow[]> {
