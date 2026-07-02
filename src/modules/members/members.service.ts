@@ -1,4 +1,4 @@
-import { ConflictError, ForbiddenError } from "../../core/errors.ts";
+import { ConflictError, ForbiddenError, NotFoundError } from "../../core/errors.ts";
 import { generateInviteToken, hashToken, normalizeEmail } from "./domain/invite-token.ts";
 import type { MemberRepo, MemberRow, MemberPublic, MemberUpdate } from "./members.repo.ts";
 
@@ -66,6 +66,21 @@ export class MembersService {
     if (!row)
       throw new ConflictError("invite not pending or not in this trip", { tripId, inviteId });
     return { token, link: `/invite/${token}`, inviteId };
+  }
+
+  /** 초대 취소: 원자 UPDATE(invited→invite_expired). 0행이면 현재 행으로 분기 —
+   *  이미 invite_expired면 멱등 no-op(200, 현 상태 반환), 부재면 404, 그 외(joined 등)면 취소불가 409. */
+  async revokeInvite(tripId: string, inviteId: string): Promise<MemberRow> {
+    const revoked = await this.repo.revokeInvite(tripId, inviteId);
+    if (revoked) return revoked;
+    const current = await this.repo.findMemberById(tripId, inviteId);
+    if (!current) throw new NotFoundError("invite not found", { tripId, inviteId });
+    if (current.status === "invite_expired") return current; // 재취소 멱등 no-op
+    throw new ConflictError("invite is not pending (already accepted or removed)", {
+      tripId,
+      inviteId,
+      status: current.status,
+    });
   }
 
   async listMembers(tripId: string): Promise<MemberPublic[]> {

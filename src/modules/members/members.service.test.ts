@@ -3,7 +3,8 @@ import { startDb, mkUser, mkTrip, type Ctx } from "../../../tests/db/helpers.ts"
 import { DrizzleMemberRepo } from "./members.repo.ts";
 import { MembersService } from "./members.service.ts";
 import { generateInviteToken, hashToken } from "./domain/invite-token.ts";
-import { ForbiddenError, ConflictError } from "../../core/errors.ts";
+import { ForbiddenError, ConflictError, NotFoundError } from "../../core/errors.ts";
+import { randomUUID } from "node:crypto";
 
 let ctx: Ctx;
 beforeAll(async () => {
@@ -132,6 +133,44 @@ describe("MembersService.resendInvite", () => {
     await expect(s.acceptInvite(old, actor(me, "re@example.com"))).rejects.toThrow(ForbiddenError);
     const r = await s.acceptInvite(fresh, actor(me, "re@example.com"));
     expect(r.status).toBe("joined");
+  });
+});
+
+describe("MembersService.revokeInvite", () => {
+  it("pending 초대 취소 → invite_expired 반환", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    const cmd = await s.createInvite(trip, "revoke@example.com", "R");
+    const row = await s.revokeInvite(trip, cmd.inviteId);
+    expect(row.status).toBe("invite_expired");
+  });
+
+  it("이미 취소된 초대 재취소 → 멱등 no-op(현 상태 반환, throw 없음)", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    const cmd = await s.createInvite(trip, "idem-rev@example.com", "R");
+    await s.revokeInvite(trip, cmd.inviteId);
+    const again = await s.revokeInvite(trip, cmd.inviteId);
+    expect(again.status).toBe("invite_expired");
+  });
+
+  it("이미 joined된 멤버 취소 시도 → ConflictError(409)", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const me = await mkUser(ctx.sql);
+    const s = svc();
+    const cmd = await s.createInvite(trip, "joined@example.com", "J");
+    await s.acceptInvite(cmd.token, actor(me, "joined@example.com"));
+    await expect(s.revokeInvite(trip, cmd.inviteId)).rejects.toThrow(ConflictError);
+  });
+
+  it("존재하지 않는 초대 취소 → NotFoundError(404)", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    await expect(s.revokeInvite(trip, randomUUID())).rejects.toThrow(NotFoundError);
   });
 });
 
