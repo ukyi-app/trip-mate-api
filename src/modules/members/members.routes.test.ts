@@ -108,4 +108,142 @@ describe("members/invites 라우트", () => {
     expect(res.status).not.toBe(200);
     expect([403, 404, 409, 422]).toContain(res.status);
   });
+
+  it("admin 초대 취소 → 200 invite_expired, 재취소 멱등 200", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
+    const cmd = await s.createInvite(trip, "revrt@example.com", "R");
+    const app = appFor(admin, "admin@example.com");
+    const res = await app.request(`/trips/${trip}/invites/${cmd.inviteId}/revoke`, {
+      method: "POST",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { status: string }).status).toBe("invite_expired");
+    const again = await app.request(`/trips/${trip}/invites/${cmd.inviteId}/revoke`, {
+      method: "POST",
+    });
+    expect(again.status).toBe(200); // 멱등 no-op
+  });
+
+  it("비-admin 취소 → 403", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const memberU = await mkUser(ctx.sql);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
+    const cmd = await s.createInvite(trip, "target@example.com", "T");
+    const { token } = await s.createInvite(trip, "m2@example.com", "M");
+    await s.acceptInvite(token, { id: memberU, email: "m2@example.com" });
+    const res = await appFor(memberU, "m2@example.com").request(
+      `/trips/${trip}/invites/${cmd.inviteId}/revoke`,
+      { method: "POST" },
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("존재하지 않는 초대 취소 → 404", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
+    const res = await appFor(admin, "admin@example.com").request(
+      `/trips/${trip}/invites/00000000-0000-4000-8000-000000000000/revoke`,
+      { method: "POST" },
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("취소된 초대는 멤버 목록에 invite_expired로 노출(응답 스키마 정합, 500 아님)", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
+    const cmd = await s.createInvite(trip, "listed@example.com", "L");
+    await s.revokeInvite(trip, cmd.inviteId);
+    const res = await appFor(admin, "admin@example.com").request(`/trips/${trip}/members`);
+    expect(res.status).toBe(200); // memberResponseSchema enum이 invite_expired 수용 → serialize 성공
+    const rows = (await res.json()) as { id: string; status: string }[];
+    expect(rows.find((r) => r.id === cmd.inviteId)?.status).toBe("invite_expired");
+  });
+
+  it("invite_expired 행을 PATCH로 joined 위조 시도 → 거부(user_id null·전이 가드)", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
+    const cmd = await s.createInvite(trip, "guard@example.com", "G");
+    await s.revokeInvite(trip, cmd.inviteId);
+    const res = await appFor(admin, "admin@example.com").request(
+      `/trips/${trip}/members/${cmd.inviteId}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "joined" }),
+      },
+    );
+    expect(res.status).not.toBe(200);
+    expect([403, 404, 409, 422]).toContain(res.status); // updateMember: isNotNull(user_id)+status∈{joined,deactivated} 가드 0행 → 409
+  });
+
+  it("admin이 다른 joined 멤버에게 양도 → 200 + 신 admin", async () => {
+    const adminU = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, adminU);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, adminU, "Admin", "admin@example.com");
+    const targetU = await mkUser(ctx.sql);
+    const { token } = await s.createInvite(trip, "t@example.com", "T");
+    const target = await s.acceptInvite(token, { id: targetU, email: "t@example.com" });
+    const res = await appFor(adminU, "admin@example.com").request(
+      `/trips/${trip}/members/${target.id}/transfer-admin`,
+      { method: "POST" },
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("admin");
+  });
+  it("비-admin 양도 시도 → 403", async () => {
+    const adminU = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, adminU);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, adminU, "Admin", "admin@example.com");
+    const memberU = await mkUser(ctx.sql);
+    const { token } = await s.createInvite(trip, "m@example.com", "M");
+    const member = await s.acceptInvite(token, { id: memberU, email: "m@example.com" });
+    const res = await appFor(memberU, "m@example.com").request(
+      `/trips/${trip}/members/${member.id}/transfer-admin`,
+      { method: "POST" },
+    );
+    expect(res.status).toBe(403);
+  });
+  it("대상이 invited(부적격) → 409", async () => {
+    const adminU = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, adminU);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, adminU, "Admin", "admin@example.com");
+    const cmd = await s.createInvite(trip, "pending@example.com", "P");
+    const res = await appFor(adminU, "admin@example.com").request(
+      `/trips/${trip}/members/${cmd.inviteId}/transfer-admin`,
+      { method: "POST" },
+    );
+    expect(res.status).toBe(409);
+  });
+  it("양도 성공 후 구 admin 재시도 → 403 (강등돼 admin 가드 우선, 거짓 성공/409 아님) [F4]", async () => {
+    const adminU = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, adminU);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, adminU, "Admin", "admin@example.com");
+    const targetU = await mkUser(ctx.sql);
+    const { token } = await s.createInvite(trip, "t2@example.com", "T2");
+    const target = await s.acceptInvite(token, { id: targetU, email: "t2@example.com" });
+    const path = `/trips/${trip}/members/${target.id}/transfer-admin`;
+    expect(
+      (await appFor(adminU, "admin@example.com").request(path, { method: "POST" })).status,
+    ).toBe(200);
+    // 재시도: 양도로 구 admin이 member로 강등됨 → requireTripMember(admin)가 먼저 403(service 미도달).
+    // 무가드·멱등 미적용 결정 하에서 이 403이 권한변경 작업의 수용된 재시도 계약이다(F4 반영).
+    expect(
+      (await appFor(adminU, "admin@example.com").request(path, { method: "POST" })).status,
+    ).toBe(403);
+  });
 });

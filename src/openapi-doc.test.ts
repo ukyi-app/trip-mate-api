@@ -30,6 +30,14 @@ describe("OpenAPI 스펙 계약", () => {
     // 액션 경로는 /accept·/resend(경로-세그먼트)로 확정 — openapi.json이 FE codegen SSOT
     expect(paths.some((p) => p.includes("/invites/{token}/accept"))).toBe(true);
     expect(paths.some((p) => p.includes("/invites/{iid}/resend"))).toBe(true);
+    // ④ 어드민 양도 경로(FE codegen SSOT)
+    expect(paths.some((p) => p.includes("/members/{memberId}/transfer-admin"))).toBe(true);
+  });
+  it("초대 취소 라우트 등록(/invites/{inviteId}/revoke) + InviteRevoked 스키마(finding: invite_expired writer)", () => {
+    const d = doc();
+    const paths = Object.keys(d.paths ?? {});
+    expect(paths.some((p) => p.includes("/invites/{inviteId}/revoke"))).toBe(true);
+    expect(d.components?.schemas?.InviteRevoked).toBeDefined();
   });
   it("cookieAuth security scheme 등록(__Host- 세션 쿠키)", () => {
     const schemes = doc().components?.securitySchemes ?? {};
@@ -45,5 +53,11 @@ describe("OpenAPI 스펙 계약", () => {
     const body = (await res.json()) as { openapi?: string; paths?: Record<string, unknown> };
     expect(body.openapi).toBe("3.1.0");
     expect(Object.keys(body.paths ?? {}).some((p) => p.includes("/v1/trips"))).toBe(true);
+  });
+  it("DELETE /v1/trips/{tripId} 등록 + DeleteTripResult 스키마(방 삭제 계약)", () => {
+    const d = doc();
+    const p = (d.paths ?? {})["/v1/trips/{tripId}"] as Record<string, unknown> | undefined;
+    expect(p?.delete).toBeDefined();
+    expect(d.components?.schemas?.DeleteTripResult).toBeDefined();
   });
 });

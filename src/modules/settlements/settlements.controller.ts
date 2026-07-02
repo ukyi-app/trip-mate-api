@@ -5,7 +5,7 @@ import {
   type SessionResolver,
   type MembershipLookup,
 } from "../../core/guards.ts";
-import { errorResponses } from "../../core/http.ts";
+import { errorResponses, idempotencyKeyHeader } from "../../core/http.ts";
 import { idempotency, type IdempotencyStore } from "../../core/idempotency.ts";
 import {
   settlementResponseSchema,
@@ -80,6 +80,7 @@ export function registerSettlementRoutes(app: OpenAPIHono, deps: Deps): void {
       middleware: [auth, admin, ...idem],
       request: {
         params: z.object({ tripId: z.string().uuid() }),
+        headers: idempotencyKeyHeader,
         body: jsonBody(finalizeRequestSchema),
       },
       responses: { ...ok(settlementResponseSchema), ...errorResponses(403, 404, 409, 422) },
@@ -100,8 +101,11 @@ export function registerSettlementRoutes(app: OpenAPIHono, deps: Deps): void {
       path: "/trips/{tripId}/settlement/unlock",
       security: [{ cookieAuth: [] }],
       middleware: [auth, admin, ...idem],
-      request: { params: z.object({ tripId: z.string().uuid() }) },
-      responses: { ...ok(settlementResponseSchema), ...errorResponses(403, 404, 409) },
+      request: {
+        params: z.object({ tripId: z.string().uuid() }),
+        headers: idempotencyKeyHeader,
+      },
+      responses: { ...ok(settlementResponseSchema), ...errorResponses(403, 404, 409, 422) },
     }),
     async (c) => {
       const tripId = c.req.valid("param").tripId;
@@ -116,8 +120,11 @@ export function registerSettlementRoutes(app: OpenAPIHono, deps: Deps): void {
       path: "/trips/{tripId}/settlement/transfers/{transferId}/mark-paid",
       security: [{ cookieAuth: [] }],
       middleware: [auth, member, ...idem],
-      request: { params: z.object({ tripId: z.string().uuid(), transferId: z.string().uuid() }) },
-      responses: { ...ok(markPaidResponse), ...errorResponses(403, 404, 409) },
+      request: {
+        params: z.object({ tripId: z.string().uuid(), transferId: z.string().uuid() }),
+        headers: idempotencyKeyHeader,
+      },
+      responses: { ...ok(markPaidResponse), ...errorResponses(403, 404, 409, 422) },
     }),
     async (c) => {
       const { tripId, transferId } = c.req.valid("param");
@@ -131,8 +138,11 @@ export function registerSettlementRoutes(app: OpenAPIHono, deps: Deps): void {
       path: "/trips/{tripId}/settlement/transfers/{transferId}/mark-unpaid",
       security: [{ cookieAuth: [] }],
       middleware: [auth, member, ...idem],
-      request: { params: z.object({ tripId: z.string().uuid(), transferId: z.string().uuid() }) },
-      responses: { ...ok(markUnpaidResponse), ...errorResponses(403, 404, 409) },
+      request: {
+        params: z.object({ tripId: z.string().uuid(), transferId: z.string().uuid() }),
+        headers: idempotencyKeyHeader,
+      },
+      responses: { ...ok(markUnpaidResponse), ...errorResponses(403, 404, 409, 422) },
     }),
     async (c) => {
       const { tripId, transferId } = c.req.valid("param");

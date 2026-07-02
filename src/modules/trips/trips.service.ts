@@ -1,8 +1,8 @@
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { NotFoundError, ValidationError } from "../../core/errors.ts";
+import { ForbiddenError, NotFoundError, ValidationError } from "../../core/errors.ts";
 import type { MembersService } from "../members/members.service.ts";
 import type { TripRepo } from "./trips.repo.ts";
-import type { CreateTrip, TripResponse, UpdateTrip } from "./trips.schema.ts";
+import type { CreateTrip, DeleteTripResult, TripResponse, UpdateTrip } from "./trips.schema.ts";
 
 export interface TripActor {
   id: string;
@@ -57,5 +57,15 @@ export class TripsService<T extends Record<string, unknown>> {
     }
     if (!t) throw new NotFoundError("trip not found");
     return t;
+  }
+
+  /** 어드민 방 전체 삭제(무가드): 미들웨어 requireTripMember('admin')가 1차 게이팅, repo가 (내부 tx) trip 락 하 admin 재검증(F5·F7, TOCTOU 차단).
+   *  finalized/paid여도 즉시 삭제, 자식은 FK cascade. repo.delete가 자체 tx를 열므로 서비스는 tx 관리 불필요. */
+  async deleteTrip(tripId: string, callerMembershipId: string): Promise<DeleteTripResult> {
+    const outcome = await this.repo.delete(tripId, callerMembershipId);
+    if (outcome === "not_found") throw new NotFoundError("trip not found");
+    if (outcome === "forbidden")
+      throw new ForbiddenError("no longer an active admin of this trip", { tripId });
+    return { id: tripId, deleted: true };
   }
 }

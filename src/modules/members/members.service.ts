@@ -1,4 +1,4 @@
-import { ConflictError, ForbiddenError } from "../../core/errors.ts";
+import { ConflictError, ForbiddenError, NotFoundError } from "../../core/errors.ts";
 import { generateInviteToken, hashToken, normalizeEmail } from "./domain/invite-token.ts";
 import type { MemberRepo, MemberRow, MemberPublic, MemberUpdate } from "./members.repo.ts";
 
@@ -38,24 +38,18 @@ export class MembersService {
     return new Date(this.now().getTime() + this.opts.ttlHours * 3600_000);
   }
 
-  /** 초대 생성 → **delivery command 반환**(token 항상 반환). 실 발송은 caller가 link로 수행(서비스는 IO 발송 안 함, finding #1 pass2). */
+  /** 초대 생성 → **delivery command 반환**(token 항상 반환). repo가 revive-upsert(취소/만료 재초대) 처리, 0행(활성 초대/멤버)만 409. 실 발송은 caller. */
   async createInvite(tripId: string, email: string, displayName: string): Promise<InviteCommand> {
     const { token, hash } = generateInviteToken();
-    let row: MemberRow;
-    try {
-      row = await this.repo.createInvite({
-        tripId,
-        email,
-        hash,
-        expiresAt: this.expiry(),
-        displayName,
-      });
-    } catch (e) {
-      // uq_member_email(정규화 이메일 중복·이미 멤버)는 사용자 행위 → ConflictError(409)로 매핑(raw 500 방지, finding #3 pass4).
-      if (isUniqueViolation(e))
-        throw new ConflictError("already invited or a member of this trip", { tripId });
-      throw e;
-    }
+    const row = await this.repo.createInvite({
+      tripId,
+      email,
+      hash,
+      expiresAt: this.expiry(),
+      displayName,
+    });
+    // 0행 = uq_member_email 충돌이나 revive 대상(invite_expired/시간만료) 아님 → 이미 초대/멤버(409).
+    if (!row) throw new ConflictError("already invited or a member of this trip", { tripId });
     return { token, link: `/invite/${token}`, inviteId: row.id };
   }
 
@@ -68,16 +62,30 @@ export class MembersService {
     return { token, link: `/invite/${token}`, inviteId };
   }
 
+  /** 초대 취소: 원자 UPDATE(invited→invite_expired). 0행이면 현재 행으로 분기 —
+   *  이미 invite_expired면 멱등 no-op(200, 현 상태 반환), 부재면 404, 그 외(joined 등)면 취소불가 409. */
+  async revokeInvite(tripId: string, inviteId: string): Promise<MemberRow> {
+    const revoked = await this.repo.revokeInvite(tripId, inviteId);
+    if (revoked) return revoked;
+    const current = await this.repo.findMemberById(tripId, inviteId);
+    if (!current) throw new NotFoundError("invite not found", { tripId, inviteId });
+    if (current.status === "invite_expired") return current; // 재취소 멱등 no-op
+    throw new ConflictError("invite is not pending (already accepted or removed)", {
+      tripId,
+      inviteId,
+      status: current.status,
+    });
+  }
+
   async listMembers(tripId: string): Promise<MemberPublic[]> {
     return this.repo.listByTrip(tripId);
   }
 
-  /** 멤버 수정(display_name·status). admin 비활성 시 마지막 어드민 가드(§9.5). 잘못된 전이/부재→Conflict(finding #3 pass3). */
+  /** 멤버 수정(display_name·status). 비활성 시 마지막 어드민 가드(§9.5)는 repo가 trip 락 하 원자 재검증(F6). */
   async updateMember(tripId: string, memberId: string, patch: MemberUpdate): Promise<MemberPublic> {
-    if (patch.status === "deactivated" && (await this.repo.isLastActiveAdmin(tripId, memberId))) {
-      throw new ForbiddenError("cannot deactivate the last admin", { tripId, memberId });
-    }
     const row = await this.repo.updateMember(tripId, memberId, patch);
+    if (row === "last_admin")
+      throw new ForbiddenError("cannot deactivate the last admin", { tripId, memberId });
     if (!row)
       throw new ConflictError("member update not allowed (invalid transition or not found)", {
         tripId,
@@ -132,6 +140,29 @@ export class MembersService {
   async assertNotLastAdmin(tripId: string): Promise<void> {
     if ((await this.repo.countActiveAdmins(tripId)) <= 1) {
       throw new ForbiddenError("cannot remove the last admin", { tripId });
+    }
+  }
+
+  /** ④ 어드민 양도: from=호출자 membership.id(미들웨어가 admin 보장), to=경로 memberId.
+   *  전체 원자성은 repo tx가 담당. repo 결과 discriminant를 HTTP 에러로 매핑. */
+  async transferAdmin(
+    tripId: string,
+    fromMemberId: string,
+    toMemberId: string,
+  ): Promise<MemberPublic> {
+    const res = await this.repo.transferAdmin(tripId, fromMemberId, toMemberId);
+    if (res.ok) return res.member;
+    switch (res.reason) {
+      // 미들웨어가 요청 시점 admin을 보장 → 0행 강등은 동시 강등/비활성 경쟁(409).
+      case "not_admin":
+        throw new ConflictError("caller is no longer an active admin", { tripId, fromMemberId });
+      case "target_missing":
+        throw new NotFoundError("target member not found in this trip", { tripId, toMemberId });
+      case "target_ineligible":
+        throw new ConflictError("target must be a joined, account-bound member", {
+          tripId,
+          toMemberId,
+        });
     }
   }
 }

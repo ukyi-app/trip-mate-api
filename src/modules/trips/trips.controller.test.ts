@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { startDb, mkUser, type Ctx } from "../../../tests/db/helpers.ts";
+import { startDb, mkUser, mkMember, type Ctx } from "../../../tests/db/helpers.ts";
 import { createApp } from "../../core/openapi.ts";
 import { DrizzleTripRepo } from "./trips.repo.ts";
 import { DrizzleMemberRepo } from "../members/members.repo.ts";
@@ -98,5 +98,40 @@ describe("trips 라우트", () => {
   it("잘못된 timezone → 422 (finding #3 pass5)", async () => {
     const u = await mkUser(ctx.sql);
     expect((await post(appFor(u), { ...body(), timezone: "Mars/Phobos" })).status).toBe(422);
+  });
+
+  const del = (app: ReturnType<typeof appFor>, id: string) =>
+    app.request(`/trips/${id}`, { method: "DELETE" });
+
+  it("어드민 DELETE → 200 {id, deleted:true}, 이후 목록 비어있음", async () => {
+    const u = await mkUser(ctx.sql);
+    const app = appFor(u);
+    const id = ((await (await post(app, body())).json()) as { id: string }).id;
+    const res = await del(app, id);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id, deleted: true });
+    expect(((await (await app.request("/trips")).json()) as unknown[]).length).toBe(0);
+  });
+  it("비멤버 DELETE → 403", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const u2 = await mkUser(ctx.sql);
+    const id = ((await (await post(appFor(u1), body())).json()) as { id: string }).id;
+    expect((await del(appFor(u2), id)).status).toBe(403);
+  });
+  it("일반 멤버 DELETE → 403 (admin 가드)", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const u2 = await mkUser(ctx.sql);
+    const id = ((await (await post(appFor(u1), body())).json()) as { id: string }).id;
+    await mkMember(ctx.sql, id, { userId: u2, role: "member", status: "joined" });
+    expect((await del(appFor(u2), id)).status).toBe(403);
+  });
+  it("삭제 성공 후 같은 admin 재시도 → 403 (멤버십 cascade 제거로 admin 가드 우선, 404 아님)", async () => {
+    const u = await mkUser(ctx.sql);
+    const app = appFor(u);
+    const id = ((await (await post(app, body())).json()) as { id: string }).id;
+    expect((await del(app, id)).status).toBe(200);
+    // 재시도: 삭제로 admin 멤버십이 cascade 제거됨 → requireTripMember(admin)가 먼저 403(deleteTrip이 404 낼 기회 없음).
+    // 무가드·멱등 미적용 결정 하에서 이 403이 불가역 삭제의 수용된 재시도 계약이다(F1 반영).
+    expect((await del(app, id)).status).toBe(403);
   });
 });

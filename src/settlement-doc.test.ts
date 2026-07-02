@@ -44,4 +44,38 @@ describe("settlement OpenAPI 계약", () => {
     expect(schemas.TransferEvent).toBeDefined();
     expect(schemas.MarkUnpaidResult).toBeDefined();
   });
+  it("멱등 4개 라우트에 Idempotency-Key 헤더 파라미터(optional·maxLength 200)", () => {
+    type Param = { name: string; in: string; required?: boolean; schema?: { maxLength?: number } };
+    const d = doc();
+    const targets = [
+      "/v1/trips/{tripId}/settlement/finalize",
+      "/v1/trips/{tripId}/settlement/unlock",
+      "/v1/trips/{tripId}/settlement/transfers/{transferId}/mark-paid",
+      "/v1/trips/{tripId}/settlement/transfers/{transferId}/mark-unpaid",
+    ];
+    for (const path of targets) {
+      const post = (d.paths as Record<string, { post?: { parameters?: Param[] } }>)[path]?.post;
+      const p = (post?.parameters ?? []).find(
+        (x) => x.name === "Idempotency-Key" && x.in === "header",
+      );
+      expect(p, path).toBeDefined();
+      expect(p!.required, path).toBe(false);
+      expect(p!.schema?.maxLength, path).toBe(200);
+    }
+  });
+  it("멱등 4개 라우트가 헤더 검증 실패에 대한 422 응답 선언(Idempotency-Key >200자 → problem+json, FE codegen 정합)", () => {
+    const d = doc();
+    const targets = [
+      "/v1/trips/{tripId}/settlement/finalize",
+      "/v1/trips/{tripId}/settlement/unlock",
+      "/v1/trips/{tripId}/settlement/transfers/{transferId}/mark-paid",
+      "/v1/trips/{tripId}/settlement/transfers/{transferId}/mark-unpaid",
+    ];
+    for (const path of targets) {
+      const post = (d.paths as Record<string, { post?: { responses?: Record<string, unknown> } }>)[
+        path
+      ]?.post;
+      expect(post?.responses?.["422"], path).toBeDefined();
+    }
+  });
 });

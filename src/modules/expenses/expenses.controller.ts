@@ -5,7 +5,7 @@ import {
   type SessionResolver,
   type MembershipLookup,
 } from "../../core/guards.ts";
-import { errorResponses } from "../../core/http.ts";
+import { errorResponses, idempotencyKeyHeader } from "../../core/http.ts";
 import { ValidationError } from "../../core/errors.ts";
 import { idempotency, type IdempotencyStore } from "../../core/idempotency.ts";
 import { parsePositiveRate } from "../fx/domain/convert.ts";
@@ -74,6 +74,7 @@ export function registerExpenseRoutes(app: OpenAPIHono, deps: Deps): void {
       middleware: [auth, member, ...idem],
       request: {
         params: z.object({ tripId: z.string().uuid() }),
+        headers: idempotencyKeyHeader,
         body: jsonBody(createExpenseSchema),
       },
       responses: { ...ok(expenseResponseSchema), ...errorResponses(403, 404, 409, 422) },

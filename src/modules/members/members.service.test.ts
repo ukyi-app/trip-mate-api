@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { startDb, mkUser, mkTrip, type Ctx } from "../../../tests/db/helpers.ts";
+import { startDb, mkUser, mkTrip, mkMember, type Ctx } from "../../../tests/db/helpers.ts";
 import { DrizzleMemberRepo } from "./members.repo.ts";
 import { MembersService } from "./members.service.ts";
 import { generateInviteToken, hashToken } from "./domain/invite-token.ts";
-import { ForbiddenError, ConflictError } from "../../core/errors.ts";
+import { ForbiddenError, ConflictError, NotFoundError } from "../../core/errors.ts";
+import { randomUUID } from "node:crypto";
 
 let ctx: Ctx;
 beforeAll(async () => {
@@ -118,6 +119,34 @@ describe("MembersService.createInvite 중복 (finding #3 pass4)", () => {
     await s.ensureCreatorMembership(trip, u, "C", "member@example.com");
     await expect(s.createInvite(trip, "member@example.com", "G")).rejects.toThrow(ConflictError);
   });
+  it("취소된 이메일 재초대 → 동일 행 revive(23505 없음)·새 토큰 유효", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const me = await mkUser(ctx.sql);
+    const s = svc();
+    const first = await s.createInvite(trip, "revive@example.com", "First");
+    const invite = await new DrizzleMemberRepo(ctx.db).findByTokenHash(hashToken(first.token));
+    await s.revokeInvite(trip, invite!.id);
+    const second = await s.createInvite(trip, "revive@example.com", "Second");
+    expect(second.inviteId).toBe(invite!.id); // 재INSERT 아님 — 동일 행 revive(FULL uq_member_email 회피)
+    const r = await s.acceptInvite(second.token, actor(me, "revive@example.com"));
+    expect(r.status).toBe("joined");
+  });
+
+  it("시간만료 초대(invited+토큰만료) 재초대 → 동일 행 revive(23505 없음)·새 토큰 유효 [F2]", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const me = await mkUser(ctx.sql);
+    const s = svc();
+    const first = await s.createInvite(trip, "expired@example.com", "Old");
+    const invite = await new DrizzleMemberRepo(ctx.db).findByTokenHash(hashToken(first.token));
+    // 시간만료 재현: status는 'invited' 그대로 두고 토큰 만료만 과거로(시간만료는 status를 바꾸지 않는 실제 동작).
+    await ctx.sql`update trip_members set invite_token_expires_at = now() - interval '1 minute' where id = ${invite!.id}`;
+    const second = await s.createInvite(trip, "expired@example.com", "New");
+    expect(second.inviteId).toBe(invite!.id); // 재INSERT 아님 — 시간만료 invited 행 revive
+    const r = await s.acceptInvite(second.token, actor(me, "expired@example.com"));
+    expect(r.status).toBe("joined");
+  });
 });
 
 describe("MembersService.resendInvite", () => {
@@ -135,6 +164,44 @@ describe("MembersService.resendInvite", () => {
   });
 });
 
+describe("MembersService.revokeInvite", () => {
+  it("pending 초대 취소 → invite_expired 반환", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    const cmd = await s.createInvite(trip, "revoke@example.com", "R");
+    const row = await s.revokeInvite(trip, cmd.inviteId);
+    expect(row.status).toBe("invite_expired");
+  });
+
+  it("이미 취소된 초대 재취소 → 멱등 no-op(현 상태 반환, throw 없음)", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    const cmd = await s.createInvite(trip, "idem-rev@example.com", "R");
+    await s.revokeInvite(trip, cmd.inviteId);
+    const again = await s.revokeInvite(trip, cmd.inviteId);
+    expect(again.status).toBe("invite_expired");
+  });
+
+  it("이미 joined된 멤버 취소 시도 → ConflictError(409)", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const me = await mkUser(ctx.sql);
+    const s = svc();
+    const cmd = await s.createInvite(trip, "joined@example.com", "J");
+    await s.acceptInvite(cmd.token, actor(me, "joined@example.com"));
+    await expect(s.revokeInvite(trip, cmd.inviteId)).rejects.toThrow(ConflictError);
+  });
+
+  it("존재하지 않는 초대 취소 → NotFoundError(404)", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    await expect(s.revokeInvite(trip, randomUUID())).rejects.toThrow(NotFoundError);
+  });
+});
+
 describe("MembersService.assertNotLastAdmin", () => {
   it("마지막 어드민 강등 차단 → ForbiddenError", async () => {
     const admin = await mkUser(ctx.sql);
@@ -142,5 +209,103 @@ describe("MembersService.assertNotLastAdmin", () => {
     const s = svc();
     await s.ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
     await expect(s.assertNotLastAdmin(trip)).rejects.toThrow(ForbiddenError);
+  });
+});
+
+describe("MembersService.transferAdmin (④ 어드민 양도)", () => {
+  it("성공 → 신 admin memberResponse 반환", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const fromId = await mkMember(ctx.sql, trip, { userId: u1, role: "admin", status: "joined" });
+    const u2 = await mkUser(ctx.sql);
+    const toId = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+
+    const m = await svc().transferAdmin(trip, fromId, toId);
+
+    expect(m.id).toBe(toId);
+    expect(m.role).toBe("admin");
+  });
+
+  it("호출자 비-admin(경쟁) → ConflictError", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const notAdmin = await mkMember(ctx.sql, trip, {
+      userId: u1,
+      role: "member",
+      status: "joined",
+    });
+    const u2 = await mkUser(ctx.sql);
+    const toId = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+    await expect(svc().transferAdmin(trip, notAdmin, toId)).rejects.toThrow(ConflictError);
+  });
+
+  it("대상 부재 → NotFoundError", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const fromId = await mkMember(ctx.sql, trip, { userId: u1, role: "admin", status: "joined" });
+    await expect(svc().transferAdmin(trip, fromId, randomUUID())).rejects.toThrow(NotFoundError);
+  });
+
+  it("대상 부적격(invited) → ConflictError", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const fromId = await mkMember(ctx.sql, trip, { userId: u1, role: "admin", status: "joined" });
+    const invitedId = await mkMember(ctx.sql, trip, { email: "p@e.com" });
+    await expect(svc().transferAdmin(trip, fromId, invitedId)).rejects.toThrow(ConflictError);
+  });
+});
+
+describe("MembersService.transferAdmin 동시성 (④ · F6)", () => {
+  // (F9·F11) 결정론적 증명: 외부 tx가 trip 락을 쥔 채 '양도 완료'(A 강등·B 승격)를 시뮬레이션 후 해제.
+  // updateMember(B, deactivate)는 락 대기 후 **락 하 재검증**으로 B(이제 유일 admin) 비활성을 차단해야 함.
+  // 미수정(락 미획득)=대기 안 함→red · stale 사전검사+락대기 구현=재검증 없이 B 비활성→0 admin→red · 수정=차단→green.
+  it("[F6] 승격된 대상(B) 비활성은 락 하 재검증으로 차단 — 0 admin 방지", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const aId = await mkMember(ctx.sql, trip, { userId: u1, role: "admin", status: "joined" });
+    const u2 = await mkUser(ctx.sql);
+    const bId = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+    const s = svc();
+
+    let outcome: "pending" | "resolved" | "rejected" = "pending";
+    let pending!: Promise<unknown>;
+    await ctx.sql.begin(async (tx) => {
+      await tx`select id from trips where id = ${trip} for update`; // 양도가 trip 락을 쥔 상태를 모사
+      pending = s.updateMember(trip, bId, { status: "deactivated" }).then(
+        () => (outcome = "resolved"),
+        () => (outcome = "rejected"),
+      );
+      await new Promise((r) => setTimeout(r, 150));
+      expect(outcome).toBe("pending"); // 수정=락 대기(미수정=락 미획득→즉시 완료→red)
+      // 락 하에서 '양도 완료' 시뮬레이션: 강등 선행(A→member) 후 승격(B→admin) — uq_one_admin 안전.
+      await tx`update trip_members set role = 'member' where trip_id = ${trip} and id = ${aId}`;
+      await tx`update trip_members set role = 'admin' where trip_id = ${trip} and id = ${bId}`;
+    }); // 커밋 → 락 해제 → updateMember가 락 획득·재검증
+    await pending;
+    // 락 하 재검증: B는 이제 유일 admin → 비활성 차단(ForbiddenError). 0 admin 방지.
+    expect(outcome).toBe("rejected"); // stale 사전검사 구현이면 resolved(0 admin)→red
+    expect(await new DrizzleMemberRepo(ctx.db).countActiveAdmins(trip)).toBe(1);
+  });
+
+  it("양도 vs 구 admin(A) 자기비활성 경쟁 → 활성 admin 정확히 1명, 500 없음", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const fromId = await mkMember(ctx.sql, trip, { userId: u1, role: "admin", status: "joined" });
+    const u2 = await mkUser(ctx.sql);
+    const toId = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+    const s = svc();
+    const results = await Promise.allSettled([
+      s.transferAdmin(trip, fromId, toId),
+      s.updateMember(trip, fromId, { status: "deactivated" }),
+    ]);
+    const repo = new DrizzleMemberRepo(ctx.db);
+    expect(await repo.countActiveAdmins(trip)).toBe(1);
+    expect((await repo.findMembership(trip, u2))?.role).toBe("admin");
+    for (const r of results) {
+      if (r.status === "rejected") {
+        expect((r.reason as { status?: number }).status).toBeGreaterThanOrEqual(400);
+        expect((r.reason as { status?: number }).status).toBeLessThan(500);
+      }
+    }
   });
 });

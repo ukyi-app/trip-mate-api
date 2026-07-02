@@ -58,6 +58,12 @@ export const updateTripSchema = tripFields
     path: ["end_date"],
   })
   .openapi("UpdateTrip");
+
+// 삭제 결과 DTO — {id, deleted:true}. FE codegen SSOT(openapi.json).
+export const deleteTripResponseSchema = z
+  .object({ id: z.string().uuid(), deleted: z.literal(true) })
+  .openapi("DeleteTripResult");
 export type TripResponse = z.infer<typeof tripResponseSchema>;
 export type CreateTrip = z.infer<typeof createTripSchema>;
 export type UpdateTrip = z.infer<typeof updateTripSchema>;
+export type DeleteTripResult = z.infer<typeof deleteTripResponseSchema>;

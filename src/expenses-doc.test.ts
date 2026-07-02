@@ -56,4 +56,16 @@ describe("expenses OpenAPI 계약", () => {
     expect(schemas.ExpensePreview).toBeDefined();
     expect(schemas.SetTripFxDefault).toBeDefined();
   });
+  it("생성 라우트에 Idempotency-Key 헤더 파라미터(optional·maxLength 200)", () => {
+    type Param = { name: string; in: string; required?: boolean; schema?: { maxLength?: number } };
+    const post = (doc().paths as Record<string, { post?: { parameters?: Param[] } }>)[
+      "/v1/trips/{tripId}/expenses"
+    ]?.post;
+    const p = (post?.parameters ?? []).find(
+      (x) => x.name === "Idempotency-Key" && x.in === "header",
+    );
+    expect(p).toBeDefined();
+    expect(p!.required).toBe(false);
+    expect(p!.schema?.maxLength).toBe(200);
+  });
 });
