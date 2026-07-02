@@ -2712,6 +2712,16 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "422 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         }
       }
@@ -2795,6 +2805,16 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "422 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         }
       }
@@ -2871,6 +2891,16 @@
           },
           "409": {
             "description": "409 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "422 problem+json",
             "content": {
               "application/problem+json": {
                 "schema": {

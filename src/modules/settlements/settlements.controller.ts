@@ -105,7 +105,7 @@ export function registerSettlementRoutes(app: OpenAPIHono, deps: Deps): void {
         params: z.object({ tripId: z.string().uuid() }),
         headers: idempotencyKeyHeader,
       },
-      responses: { ...ok(settlementResponseSchema), ...errorResponses(403, 404, 409) },
+      responses: { ...ok(settlementResponseSchema), ...errorResponses(403, 404, 409, 422) },
     }),
     async (c) => {
       const tripId = c.req.valid("param").tripId;
@@ -124,7 +124,7 @@ export function registerSettlementRoutes(app: OpenAPIHono, deps: Deps): void {
         params: z.object({ tripId: z.string().uuid(), transferId: z.string().uuid() }),
         headers: idempotencyKeyHeader,
       },
-      responses: { ...ok(markPaidResponse), ...errorResponses(403, 404, 409) },
+      responses: { ...ok(markPaidResponse), ...errorResponses(403, 404, 409, 422) },
     }),
     async (c) => {
       const { tripId, transferId } = c.req.valid("param");
@@ -142,7 +142,7 @@ export function registerSettlementRoutes(app: OpenAPIHono, deps: Deps): void {
         params: z.object({ tripId: z.string().uuid(), transferId: z.string().uuid() }),
         headers: idempotencyKeyHeader,
       },
-      responses: { ...ok(markUnpaidResponse), ...errorResponses(403, 404, 409) },
+      responses: { ...ok(markUnpaidResponse), ...errorResponses(403, 404, 409, 422) },
     }),
     async (c) => {
       const { tripId, transferId } = c.req.valid("param");

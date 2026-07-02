@@ -63,4 +63,19 @@ describe("settlement OpenAPI 계약", () => {
       expect(p!.schema?.maxLength, path).toBe(200);
     }
   });
+  it("멱등 4개 라우트가 헤더 검증 실패에 대한 422 응답 선언(Idempotency-Key >200자 → problem+json, FE codegen 정합)", () => {
+    const d = doc();
+    const targets = [
+      "/v1/trips/{tripId}/settlement/finalize",
+      "/v1/trips/{tripId}/settlement/unlock",
+      "/v1/trips/{tripId}/settlement/transfers/{transferId}/mark-paid",
+      "/v1/trips/{tripId}/settlement/transfers/{transferId}/mark-unpaid",
+    ];
+    for (const path of targets) {
+      const post = (d.paths as Record<string, { post?: { responses?: Record<string, unknown> } }>)[
+        path
+      ]?.post;
+      expect(post?.responses?.["422"], path).toBeDefined();
+    }
+  });
 });
