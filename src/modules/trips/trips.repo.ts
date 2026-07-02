@@ -69,6 +69,8 @@ export class DrizzleTripRepo<T extends Record<string, unknown>> implements TripR
   //   trip_members cascade가 expenses/settlements cascade보다 먼저 실행되면 참조자가 아직 남아 23503이 난다.
   //   → expenses·settlements를 먼저 삭제(그 하위 cascade로 trip_members 참조자를 폐포에서 제거)한 뒤 trips 삭제가
   //   trip_members·trip_fx_defaults를 안전 cascade. trips에 version/deleted_at 없음.
+  //   ⚠ 새 trip-scoped 자식이 trip_members/trips를 NO ACTION으로 참조하면 이 선삭제 폐포에 포함돼야 한다 —
+  //   tests/db/trip-cascade.test.ts의 [F12 가드]가 그 불변식을 스키마 introspection으로 강제(폐포 밖이면 red).
   async delete(
     tripId: string,
     callerMembershipId: string,
