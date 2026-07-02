@@ -67,7 +67,6 @@ export interface MemberRepo {
     memberId: string,
     patch: MemberUpdate,
   ): Promise<MemberPublic | null | "last_admin">;
-  isLastActiveAdmin(tripId: string, memberId: string): Promise<boolean>;
   countActiveAdmins(tripId: string): Promise<number>;
   /** 어드민 원자 양도 — trip row FOR UPDATE 하 강등 선행→승격 후행(uq_one_admin non-deferrable, 역순 시 순간 2 admin 위반). */
   transferAdmin(
@@ -271,21 +270,6 @@ export class DrizzleMemberRepo<T extends Record<string, unknown>> implements Mem
       .where(and(...conds))
       .returning(PUBLIC_COLS);
     return rows[0] ?? null;
-  }
-
-  /** memberId가 그 trip의 **유일한 활성 어드민**인지(비활성 차단용, §9.5). */
-  async isLastActiveAdmin(tripId: string, memberId: string): Promise<boolean> {
-    const admins = await this.db
-      .select({ id: tripMembers.id })
-      .from(tripMembers)
-      .where(
-        and(
-          eq(tripMembers.trip_id, tripId),
-          eq(tripMembers.role, "admin"),
-          eq(tripMembers.status, "joined"),
-        ),
-      );
-    return admins.length === 1 && admins[0]?.id === memberId;
   }
 
   async findMembership(tripId: string, userId: string): Promise<MemberRow | null> {
