@@ -39,7 +39,7 @@ export interface AcceptCasInput {
   normalizedEmail: string;
 }
 export interface MemberRepo {
-  createInvite(i: CreateInviteInput): Promise<MemberRow>;
+  createInvite(i: CreateInviteInput): Promise<MemberRow | null>;
   findByTokenHash(hash: string): Promise<MemberRow | null>;
   acceptInviteCas(i: AcceptCasInput): Promise<MemberRow | null>;
   /** 재발송 회전 — **tripId 스코핑**(교차-trip 회전 차단, finding #1 pass1·pass4). 0행=비-pending/타-trip. */
@@ -84,7 +84,9 @@ const PUBLIC_COLS = {
 export class DrizzleMemberRepo<T extends Record<string, unknown>> implements MemberRepo {
   constructor(private readonly db: PostgresJsDatabase<T>) {}
 
-  async createInvite(i: CreateInviteInput): Promise<MemberRow> {
+  /** 초대 생성(revive-upsert): 신규는 INSERT, 같은 (trip_id, 정규화 이메일)이 invite_expired(취소) 또는 시간만료(invited+토큰 만료)면 재INSERT 대신 revive(status=invited·새 hash/expires·name/email 갱신).
+   *  FULL uq_member_email이 재INSERT를 23505로 막으므로 ON CONFLICT DO UPDATE로 원자 처리. setWhere가 false(활성 invited/joined/deactivated)면 0행 → service가 409로 매핑. */
+  async createInvite(i: CreateInviteInput): Promise<MemberRow | null> {
     const norm = normalizeEmail(i.email);
     const rows = await this.db
       .insert(tripMembers)
@@ -98,8 +100,20 @@ export class DrizzleMemberRepo<T extends Record<string, unknown>> implements Mem
         role: "member",
         status: "invited",
       })
+      .onConflictDoUpdate({
+        target: [tripMembers.trip_id, tripMembers.normalized_invited_email], // = uq_member_email
+        set: {
+          invited_email: i.email,
+          invite_token_hash: i.hash,
+          invite_token_expires_at: i.expiresAt,
+          display_name: i.displayName,
+          status: "invited",
+        },
+        // F2 반영: 취소(invite_expired) + 시간만료(status='invited'이나 토큰 만료 — 시간만료는 status를 바꾸지 않으므로 이 조건 필수) 둘 다 revive.
+        setWhere: sql`${tripMembers.status} = 'invite_expired' OR (${tripMembers.status} = 'invited' AND ${tripMembers.invite_token_expires_at} <= now())`,
+      })
       .returning(COLS);
-    return rows[0]!;
+    return rows[0] ?? null; // 0행 = 활성 초대/멤버 이미 존재(revive 불가)
   }
 
   async findByTokenHash(hash: string): Promise<MemberRow | null> {

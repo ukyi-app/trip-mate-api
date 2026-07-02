@@ -119,6 +119,34 @@ describe("MembersService.createInvite 중복 (finding #3 pass4)", () => {
     await s.ensureCreatorMembership(trip, u, "C", "member@example.com");
     await expect(s.createInvite(trip, "member@example.com", "G")).rejects.toThrow(ConflictError);
   });
+  it("취소된 이메일 재초대 → 동일 행 revive(23505 없음)·새 토큰 유효", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const me = await mkUser(ctx.sql);
+    const s = svc();
+    const first = await s.createInvite(trip, "revive@example.com", "First");
+    const invite = await new DrizzleMemberRepo(ctx.db).findByTokenHash(hashToken(first.token));
+    await s.revokeInvite(trip, invite!.id);
+    const second = await s.createInvite(trip, "revive@example.com", "Second");
+    expect(second.inviteId).toBe(invite!.id); // 재INSERT 아님 — 동일 행 revive(FULL uq_member_email 회피)
+    const r = await s.acceptInvite(second.token, actor(me, "revive@example.com"));
+    expect(r.status).toBe("joined");
+  });
+
+  it("시간만료 초대(invited+토큰만료) 재초대 → 동일 행 revive(23505 없음)·새 토큰 유효 [F2]", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const me = await mkUser(ctx.sql);
+    const s = svc();
+    const first = await s.createInvite(trip, "expired@example.com", "Old");
+    const invite = await new DrizzleMemberRepo(ctx.db).findByTokenHash(hashToken(first.token));
+    // 시간만료 재현: status는 'invited' 그대로 두고 토큰 만료만 과거로(시간만료는 status를 바꾸지 않는 실제 동작).
+    await ctx.sql`update trip_members set invite_token_expires_at = now() - interval '1 minute' where id = ${invite!.id}`;
+    const second = await s.createInvite(trip, "expired@example.com", "New");
+    expect(second.inviteId).toBe(invite!.id); // 재INSERT 아님 — 시간만료 invited 행 revive
+    const r = await s.acceptInvite(second.token, actor(me, "expired@example.com"));
+    expect(r.status).toBe("joined");
+  });
 });
 
 describe("MembersService.resendInvite", () => {

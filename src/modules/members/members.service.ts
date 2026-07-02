@@ -38,24 +38,18 @@ export class MembersService {
     return new Date(this.now().getTime() + this.opts.ttlHours * 3600_000);
   }
 
-  /** 초대 생성 → **delivery command 반환**(token 항상 반환). 실 발송은 caller가 link로 수행(서비스는 IO 발송 안 함, finding #1 pass2). */
+  /** 초대 생성 → **delivery command 반환**(token 항상 반환). repo가 revive-upsert(취소/만료 재초대) 처리, 0행(활성 초대/멤버)만 409. 실 발송은 caller. */
   async createInvite(tripId: string, email: string, displayName: string): Promise<InviteCommand> {
     const { token, hash } = generateInviteToken();
-    let row: MemberRow;
-    try {
-      row = await this.repo.createInvite({
-        tripId,
-        email,
-        hash,
-        expiresAt: this.expiry(),
-        displayName,
-      });
-    } catch (e) {
-      // uq_member_email(정규화 이메일 중복·이미 멤버)는 사용자 행위 → ConflictError(409)로 매핑(raw 500 방지, finding #3 pass4).
-      if (isUniqueViolation(e))
-        throw new ConflictError("already invited or a member of this trip", { tripId });
-      throw e;
-    }
+    const row = await this.repo.createInvite({
+      tripId,
+      email,
+      hash,
+      expiresAt: this.expiry(),
+      displayName,
+    });
+    // 0행 = uq_member_email 충돌이나 revive 대상(invite_expired/시간만료) 아님 → 이미 초대/멤버(409).
+    if (!row) throw new ConflictError("already invited or a member of this trip", { tripId });
     return { token, link: `/invite/${token}`, inviteId: row.id };
   }
 
