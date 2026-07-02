@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { startDb, mkUser, mkTrip, type Ctx } from "../../../tests/db/helpers.ts";
+import { startDb, mkUser, mkTrip, mkMember, type Ctx } from "../../../tests/db/helpers.ts";
 import { DrizzleMemberRepo } from "./members.repo.ts";
 import { MembersService } from "./members.service.ts";
 import { generateInviteToken, hashToken } from "./domain/invite-token.ts";
@@ -209,5 +209,48 @@ describe("MembersService.assertNotLastAdmin", () => {
     const s = svc();
     await s.ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
     await expect(s.assertNotLastAdmin(trip)).rejects.toThrow(ForbiddenError);
+  });
+});
+
+describe("MembersService.transferAdmin (④ 어드민 양도)", () => {
+  it("성공 → 신 admin memberResponse 반환", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const fromId = await mkMember(ctx.sql, trip, { userId: u1, role: "admin", status: "joined" });
+    const u2 = await mkUser(ctx.sql);
+    const toId = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+
+    const m = await svc().transferAdmin(trip, fromId, toId);
+
+    expect(m.id).toBe(toId);
+    expect(m.role).toBe("admin");
+  });
+
+  it("호출자 비-admin(경쟁) → ConflictError", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const notAdmin = await mkMember(ctx.sql, trip, {
+      userId: u1,
+      role: "member",
+      status: "joined",
+    });
+    const u2 = await mkUser(ctx.sql);
+    const toId = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+    await expect(svc().transferAdmin(trip, notAdmin, toId)).rejects.toThrow(ConflictError);
+  });
+
+  it("대상 부재 → NotFoundError", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const fromId = await mkMember(ctx.sql, trip, { userId: u1, role: "admin", status: "joined" });
+    await expect(svc().transferAdmin(trip, fromId, randomUUID())).rejects.toThrow(NotFoundError);
+  });
+
+  it("대상 부적격(invited) → ConflictError", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const fromId = await mkMember(ctx.sql, trip, { userId: u1, role: "admin", status: "joined" });
+    const invitedId = await mkMember(ctx.sql, trip, { email: "p@e.com" });
+    await expect(svc().transferAdmin(trip, fromId, invitedId)).rejects.toThrow(ConflictError);
   });
 });

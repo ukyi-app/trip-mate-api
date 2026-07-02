@@ -143,4 +143,27 @@ export class MembersService {
       throw new ForbiddenError("cannot remove the last admin", { tripId });
     }
   }
+
+  /** ④ 어드민 양도: from=호출자 membership.id(미들웨어가 admin 보장), to=경로 memberId.
+   *  전체 원자성은 repo tx가 담당. repo 결과 discriminant를 HTTP 에러로 매핑. */
+  async transferAdmin(
+    tripId: string,
+    fromMemberId: string,
+    toMemberId: string,
+  ): Promise<MemberPublic> {
+    const res = await this.repo.transferAdmin(tripId, fromMemberId, toMemberId);
+    if (res.ok) return res.member;
+    switch (res.reason) {
+      // 미들웨어가 요청 시점 admin을 보장 → 0행 강등은 동시 강등/비활성 경쟁(409).
+      case "not_admin":
+        throw new ConflictError("caller is no longer an active admin", { tripId, fromMemberId });
+      case "target_missing":
+        throw new NotFoundError("target member not found in this trip", { tripId, toMemberId });
+      case "target_ineligible":
+        throw new ConflictError("target must be a joined, account-bound member", {
+          tripId,
+          toMemberId,
+        });
+    }
+  }
 }
