@@ -13,8 +13,9 @@
 ## 2. 리소스 & 엔드포인트 (PRD §32 → REST, 전부 `/v1` 하위)
 ```
 trips       GET /trips(내 여행방 §32.11) · POST /trips(§32.2) · GET/PATCH/DELETE /trips/{id}(§32.5·§32.10)
-members     GET /trips/{id}/members · PATCH /trips/{id}/members/{mid}(비활성·표시이름·어드민 양도 §9)
-invites     POST /trips/{id}/invites(§32.3) · POST .../invites/{iid}:resend · POST /invites/{token}:accept(§32.4)
+members     GET /trips/{id}/members · PATCH /trips/{id}/members/{mid}(비활성·표시이름 §9)
+            POST /trips/{id}/members/{mid}/transfer-admin(어드민 양도 — 전용 트랜잭션 액션: 강등선행 원자 swap, `uq_one_admin` non-deferrable §9)
+invites     POST /trips/{id}/invites(§32.3) · POST .../invites/{iid}:resend · POST .../invites/{iid}/revoke(초대 취소 → invite_expired) · POST /invites/{token}:accept(§32.4)
 expenses    GET /trips/{id}/expenses(목록+필터+커서 §32.7) · POST(§32.6) · GET/PATCH/DELETE .../expenses/{eid}(§32.8)
             POST .../expenses:preview (저장 전 환율·정산 미리보기, FX §1)
 settlement  GET /trips/{id}/settlement(현재 계산 + 포함 지출 seen_versions §32.9) · GET .../settlement/precheck(§29)
@@ -43,7 +44,7 @@ settlement  GET /trips/{id}/settlement(현재 계산 + 포함 지출 seen_versio
 ## 5. 동시성 & 멱등성
 - **낙관적 잠금(D2 — body `version`):** `version`은 **public 동시성 토큰**(리뷰 #2) — CAS-feeding 응답(expense·settlement)에 노출 + 수정/확정 요청 **스키마에 필수 필드**(클라가 읽은 값 echo). 서버 CAS(version 일치) → 불일치 시 **409 ConflictError**(stale client 안전 read-modify-write). DB §7·§31.6.
 - **finalize reviewed-set(리뷰 pass3 — DB §7.1 정합):** 정산 확정은 단일 settlement version으론 부족. `GET /settlement`·`precheck` 응답이 포함 지출의 **`[{expense_id, version}]`(또는 잠긴 집합 reviewed-set digest)** 를 노출하고, `:finalize` 요청이 그 **`seen_expense_versions`를 필수**로 echo. 서버는 **trip lock 하에서 현재 포함 집합과 대조**(architecture §4.6 seenVersions) → drift 시 **409 ConflictError**(사용자가 본 집합이 바뀜).
-- **멱등성(D3 — `Idempotency-Key` 헤더):** 지출 생성에 클라이언트 nanoid 키. **scope = (인증 principal + endpoint)**, Valkey에 `scoped_key → {request_hash, result}`(TTL) 저장 (리뷰 #3):
+- **멱등성(D3 — `Idempotency-Key` 헤더):** 지출 생성 + 정산 finalize/unlock/mark-paid/mark-unpaid(총 **5개 라우트**)에 클라이언트 nanoid 키(계약상 optional·maxLength 200 헤더 파라미터로 노출). **scope = (인증 principal + endpoint)**, `scoped_key → {request_hash, result}`(TTL) 저장 (리뷰 #3):
   - 재시도(같은 키·같은 body) → 저장된 동일 응답.
   - **같은 키·다른 body → 409 ConflictError**(키 오용 차단).
   - **동시 같은 키 → single-flight**(`SET NX` lock): 첫 요청만 처리, 나머지는 대기 후 저장 결과(또는 409 in-progress).
