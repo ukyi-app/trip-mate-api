@@ -90,6 +90,26 @@ export function registerMemberRoutes(app: OpenAPIHono, deps: Deps): void {
     },
   );
 
+  // 어드민 양도(admin) — 강등선행→승격 원자 tx. from=호출자 membership.id, to=경로 memberId.
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/trips/{tripId}/members/{memberId}/transfer-admin",
+      security: [{ cookieAuth: [] }],
+      middleware: [auth, admin],
+      request: {
+        params: z.object({ tripId: z.string().uuid(), memberId: z.string().uuid() }),
+      },
+      responses: { ...ok(memberResponseSchema), ...errorResponses(403, 404, 409) },
+    }),
+    async (c) => {
+      const { tripId, memberId } = c.req.valid("param");
+      const membership = c.get("membership");
+      const member = await deps.service.transferAdmin(tripId, membership.id, memberId);
+      return c.json(member, 200);
+    },
+  );
+
   // 재발송(admin) — /resend 세그먼트, tripId 스코핑
   app.openapi(
     createRoute({

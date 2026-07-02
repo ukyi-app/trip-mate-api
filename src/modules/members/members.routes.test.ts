@@ -186,4 +186,64 @@ describe("members/invites 라우트", () => {
     expect(res.status).not.toBe(200);
     expect([403, 404, 409, 422]).toContain(res.status); // updateMember: isNotNull(user_id)+status∈{joined,deactivated} 가드 0행 → 409
   });
+
+  it("admin이 다른 joined 멤버에게 양도 → 200 + 신 admin", async () => {
+    const adminU = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, adminU);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, adminU, "Admin", "admin@example.com");
+    const targetU = await mkUser(ctx.sql);
+    const { token } = await s.createInvite(trip, "t@example.com", "T");
+    const target = await s.acceptInvite(token, { id: targetU, email: "t@example.com" });
+    const res = await appFor(adminU, "admin@example.com").request(
+      `/trips/${trip}/members/${target.id}/transfer-admin`,
+      { method: "POST" },
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("admin");
+  });
+  it("비-admin 양도 시도 → 403", async () => {
+    const adminU = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, adminU);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, adminU, "Admin", "admin@example.com");
+    const memberU = await mkUser(ctx.sql);
+    const { token } = await s.createInvite(trip, "m@example.com", "M");
+    const member = await s.acceptInvite(token, { id: memberU, email: "m@example.com" });
+    const res = await appFor(memberU, "m@example.com").request(
+      `/trips/${trip}/members/${member.id}/transfer-admin`,
+      { method: "POST" },
+    );
+    expect(res.status).toBe(403);
+  });
+  it("대상이 invited(부적격) → 409", async () => {
+    const adminU = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, adminU);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, adminU, "Admin", "admin@example.com");
+    const cmd = await s.createInvite(trip, "pending@example.com", "P");
+    const res = await appFor(adminU, "admin@example.com").request(
+      `/trips/${trip}/members/${cmd.inviteId}/transfer-admin`,
+      { method: "POST" },
+    );
+    expect(res.status).toBe(409);
+  });
+  it("양도 성공 후 구 admin 재시도 → 403 (강등돼 admin 가드 우선, 거짓 성공/409 아님) [F4]", async () => {
+    const adminU = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, adminU);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, adminU, "Admin", "admin@example.com");
+    const targetU = await mkUser(ctx.sql);
+    const { token } = await s.createInvite(trip, "t2@example.com", "T2");
+    const target = await s.acceptInvite(token, { id: targetU, email: "t2@example.com" });
+    const path = `/trips/${trip}/members/${target.id}/transfer-admin`;
+    expect(
+      (await appFor(adminU, "admin@example.com").request(path, { method: "POST" })).status,
+    ).toBe(200);
+    // 재시도: 양도로 구 admin이 member로 강등됨 → requireTripMember(admin)가 먼저 403(service 미도달).
+    // 무가드·멱등 미적용 결정 하에서 이 403이 권한변경 작업의 수용된 재시도 계약이다(F4 반영).
+    expect(
+      (await appFor(adminU, "admin@example.com").request(path, { method: "POST" })).status,
+    ).toBe(403);
+  });
 });

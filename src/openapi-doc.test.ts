@@ -30,6 +30,8 @@ describe("OpenAPI 스펙 계약", () => {
     // 액션 경로는 /accept·/resend(경로-세그먼트)로 확정 — openapi.json이 FE codegen SSOT
     expect(paths.some((p) => p.includes("/invites/{token}/accept"))).toBe(true);
     expect(paths.some((p) => p.includes("/invites/{iid}/resend"))).toBe(true);
+    // ④ 어드민 양도 경로(FE codegen SSOT)
+    expect(paths.some((p) => p.includes("/members/{memberId}/transfer-admin"))).toBe(true);
   });
   it("초대 취소 라우트 등록(/invites/{inviteId}/revoke) + InviteRevoked 스키마(finding: invite_expired writer)", () => {
     const d = doc();
