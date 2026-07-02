@@ -6,7 +6,12 @@ import {
   type MembershipLookup,
 } from "../../core/guards.ts";
 import { errorResponses } from "../../core/http.ts";
-import { tripResponseSchema, createTripSchema, updateTripSchema } from "./trips.schema.ts";
+import {
+  tripResponseSchema,
+  createTripSchema,
+  updateTripSchema,
+  deleteTripResponseSchema,
+} from "./trips.schema.ts";
 import type { TripsService } from "./trips.service.ts";
 
 interface Deps {
@@ -86,6 +91,22 @@ export function registerTripRoutes(app: OpenAPIHono, deps: Deps): void {
     async (c) =>
       c.json(
         await deps.tripsService.updateTrip(c.req.valid("param").tripId, c.req.valid("json")),
+        200,
+      ),
+  );
+
+  app.openapi(
+    createRoute({
+      method: "delete",
+      path: "/trips/{tripId}",
+      security: [{ cookieAuth: [] }],
+      middleware: [auth, requireTripMember(deps.memberLookup, "admin")],
+      request: { params: z.object({ tripId: z.string().uuid() }) },
+      responses: { ...ok(deleteTripResponseSchema), ...errorResponses(403, 404) },
+    }),
+    async (c) =>
+      c.json(
+        await deps.tripsService.deleteTrip(c.req.valid("param").tripId, c.get("membership").id),
         200,
       ),
   );

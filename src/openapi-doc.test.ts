@@ -46,4 +46,10 @@ describe("OpenAPI 스펙 계약", () => {
     expect(body.openapi).toBe("3.1.0");
     expect(Object.keys(body.paths ?? {}).some((p) => p.includes("/v1/trips"))).toBe(true);
   });
+  it("DELETE /v1/trips/{tripId} 등록 + DeleteTripResult 스키마(방 삭제 계약)", () => {
+    const d = doc();
+    const p = (d.paths ?? {})["/v1/trips/{tripId}"] as Record<string, unknown> | undefined;
+    expect(p?.delete).toBeDefined();
+    expect(d.components?.schemas?.DeleteTripResult).toBeDefined();
+  });
 });
