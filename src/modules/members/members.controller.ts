@@ -11,6 +11,7 @@ import {
   createInviteSchema,
   updateMemberSchema,
   acceptResponseSchema,
+  inviteRevokedSchema,
 } from "./members.schema.ts";
 import type { MembersService } from "./members.service.ts";
 
@@ -105,6 +106,31 @@ export function registerMemberRoutes(app: OpenAPIHono, deps: Deps): void {
     async (c) => {
       const { tripId, iid } = c.req.valid("param");
       return c.json({ link: (await deps.service.resendInvite(tripId, iid)).link }, 200);
+    },
+  );
+
+  // 초대 취소(admin) — /revoke 세그먼트, tripId 스코핑. invited→invite_expired 전이, 재취소 멱등 200.
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/trips/{tripId}/invites/{inviteId}/revoke",
+      security: [{ cookieAuth: [] }],
+      middleware: [auth, admin],
+      request: {
+        params: z.object({ tripId: z.string().uuid(), inviteId: z.string().uuid() }),
+      },
+      responses: { ...ok(inviteRevokedSchema), ...errorResponses(403, 404, 409) },
+    }),
+    async (c) => {
+      const { tripId, inviteId } = c.req.valid("param");
+      const row = await deps.service.revokeInvite(tripId, inviteId);
+      return c.json(
+        {
+          id: row.id,
+          status: row.status as "invited" | "joined" | "deactivated" | "invite_expired",
+        },
+        200,
+      );
     },
   );
 

@@ -31,6 +31,12 @@ describe("OpenAPI 스펙 계약", () => {
     expect(paths.some((p) => p.includes("/invites/{token}/accept"))).toBe(true);
     expect(paths.some((p) => p.includes("/invites/{iid}/resend"))).toBe(true);
   });
+  it("초대 취소 라우트 등록(/invites/{inviteId}/revoke) + InviteRevoked 스키마(finding: invite_expired writer)", () => {
+    const d = doc();
+    const paths = Object.keys(d.paths ?? {});
+    expect(paths.some((p) => p.includes("/invites/{inviteId}/revoke"))).toBe(true);
+    expect(d.components?.schemas?.InviteRevoked).toBeDefined();
+  });
   it("cookieAuth security scheme 등록(__Host- 세션 쿠키)", () => {
     const schemes = doc().components?.securitySchemes ?? {};
     expect(schemes.cookieAuth).toBeDefined();

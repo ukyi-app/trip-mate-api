@@ -108,4 +108,50 @@ describe("members/invites 라우트", () => {
     expect(res.status).not.toBe(200);
     expect([403, 404, 409, 422]).toContain(res.status);
   });
+
+  it("admin 초대 취소 → 200 invite_expired, 재취소 멱등 200", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
+    const cmd = await s.createInvite(trip, "revrt@example.com", "R");
+    const app = appFor(admin, "admin@example.com");
+    const res = await app.request(`/trips/${trip}/invites/${cmd.inviteId}/revoke`, {
+      method: "POST",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { status: string }).status).toBe("invite_expired");
+    const again = await app.request(`/trips/${trip}/invites/${cmd.inviteId}/revoke`, {
+      method: "POST",
+    });
+    expect(again.status).toBe(200); // 멱등 no-op
+  });
+
+  it("비-admin 취소 → 403", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const memberU = await mkUser(ctx.sql);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
+    const cmd = await s.createInvite(trip, "target@example.com", "T");
+    const { token } = await s.createInvite(trip, "m2@example.com", "M");
+    await s.acceptInvite(token, { id: memberU, email: "m2@example.com" });
+    const res = await appFor(memberU, "m2@example.com").request(
+      `/trips/${trip}/invites/${cmd.inviteId}/revoke`,
+      { method: "POST" },
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("존재하지 않는 초대 취소 → 404", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
+    const res = await appFor(admin, "admin@example.com").request(
+      `/trips/${trip}/invites/00000000-0000-4000-8000-000000000000/revoke`,
+      { method: "POST" },
+    );
+    expect(res.status).toBe(404);
+  });
 });

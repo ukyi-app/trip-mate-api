@@ -23,3 +23,10 @@ export const updateMemberSchema = z
 export const acceptResponseSchema = z
   .object({ trip_id: z.string(), role: z.enum(["admin", "member"]), status: z.string() })
   .openapi("AcceptInvite");
+
+export const inviteRevokedSchema = z
+  .object({
+    id: z.string(),
+    status: z.enum(["invited", "joined", "deactivated", "invite_expired"]),
+  })
+  .openapi("InviteRevoked");
