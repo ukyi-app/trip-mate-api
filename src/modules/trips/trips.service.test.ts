@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { startDb, mkUser, type Ctx } from "../../../tests/db/helpers.ts";
+import { randomUUID } from "node:crypto";
+import { startDb, mkUser, mkMember, type Ctx } from "../../../tests/db/helpers.ts";
+import { ForbiddenError, NotFoundError } from "../../core/errors.ts";
 import { DrizzleTripRepo } from "./trips.repo.ts";
 import { DrizzleMemberRepo } from "../members/members.repo.ts";
 import { MembersService } from "../members/members.service.ts";
@@ -58,5 +60,35 @@ describe("TripsService", () => {
       { n: number }[]
     >`select count(*)::int as n from trips where created_by_user_id = ${u}`;
     expect(cnt[0]!.n).toBe(0); // 롤백 — trip 미생성
+  });
+  it("deleteTrip → {id, deleted:true}, 이후 listTrips 비어있음", async () => {
+    const u = await mkUser(ctx.sql);
+    const s = svc();
+    const trip = await s.createTrip(input(), actor(u));
+    const rows = await ctx.sql<
+      { id: string }[]
+    >`select id from trip_members where trip_id=${trip.id} and user_id=${u}`;
+    const mid = rows[0]!.id;
+    const res = await s.deleteTrip(trip.id, mid);
+    expect(res).toEqual({ id: trip.id, deleted: true });
+    expect(await s.listTrips(u)).toHaveLength(0); // 멤버십도 cascade 제거
+  });
+  it("deleteTrip: 없는 tripId → NotFoundError(404)", async () => {
+    const s = svc();
+    await expect(
+      s.deleteTrip("00000000-0000-0000-0000-000000000000", randomUUID()),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+  it("deleteTrip: 호출자가 admin 아님 → ForbiddenError(403)·삭제 안 됨 [F5]", async () => {
+    const u = await mkUser(ctx.sql);
+    const s = svc();
+    const trip = await s.createTrip(input(), actor(u));
+    const otherMid = await mkMember(ctx.sql, trip.id, {
+      userId: await mkUser(ctx.sql),
+      role: "member",
+      status: "joined",
+    });
+    await expect(s.deleteTrip(trip.id, otherMid)).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await s.getTrip(trip.id)).toBeTruthy(); // 존재 유지
   });
 });
