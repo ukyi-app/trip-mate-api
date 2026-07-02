@@ -151,3 +151,43 @@ describe("DrizzleMemberRepo", () => {
     expect(await repo.countActiveAdmins(trip)).toBe(1);
   });
 });
+
+describe("DrizzleMemberRepo.revokeInvite", () => {
+  it("pending invite 취소 → invite_expired·토큰 null화(1행), 재취소 0행", async () => {
+    const u = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u);
+    const repo = new DrizzleMemberRepo(ctx.db);
+    const { hash } = generateInviteToken();
+    await repo.createInvite({
+      tripId: trip,
+      email: "rev@example.com",
+      hash,
+      expiresAt: future(),
+      displayName: "R",
+    });
+    const row = await repo.findByTokenHash(hash);
+    const revoked = await repo.revokeInvite(trip, row!.id);
+    expect(revoked?.status).toBe("invite_expired");
+    expect(await repo.findByTokenHash(hash)).toBeNull(); // 토큰 null화 → 조회 불가(uq_invite_token partial에서도 제거)
+    expect(await repo.revokeInvite(trip, row!.id)).toBeNull(); // 재취소 0행(비-pending)
+    expect((await repo.findMemberById(trip, row!.id))?.status).toBe("invite_expired");
+  });
+
+  it("교차-trip 취소 시도 → 0행(tripId 스코핑), 원본 불변", async () => {
+    const u = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u);
+    const other = await mkTrip(ctx.sql, await mkUser(ctx.sql));
+    const repo = new DrizzleMemberRepo(ctx.db);
+    const { hash } = generateInviteToken();
+    await repo.createInvite({
+      tripId: trip,
+      email: "scope@example.com",
+      hash,
+      expiresAt: future(),
+      displayName: "S",
+    });
+    const row = await repo.findByTokenHash(hash);
+    expect(await repo.revokeInvite(other, row!.id)).toBeNull(); // 다른 trip → 0행
+    expect((await repo.findMemberById(trip, row!.id))?.status).toBe("invited"); // 원본 invited 불변
+  });
+});

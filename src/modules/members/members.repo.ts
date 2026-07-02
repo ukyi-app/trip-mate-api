@@ -49,6 +49,10 @@ export interface MemberRepo {
     hash: string,
     expiresAt: Date,
   ): Promise<MemberRow | null>;
+  /** pending(invited) 초대 취소 — 단일 원자 UPDATE로 invite_expired 전이·토큰 null화. tripId 스코핑, 0행=비-pending/타-trip. */
+  revokeInvite(tripId: string, inviteId: string): Promise<MemberRow | null>;
+  /** (tripId, memberId) 단건 조회 — revoke 0행 시 상태 분기(멱등/409/404)용. */
+  findMemberById(tripId: string, memberId: string): Promise<MemberRow | null>;
   findMembership(tripId: string, userId: string): Promise<MemberRow | null>;
   listByTrip(tripId: string): Promise<MemberPublic[]>;
   /** 멤버 수정 — status는 **user_id 바인딩된 joined↔deactivated만**(invited→joined 위조 차단, finding #3 pass3). 0행=불가/부재. */
@@ -143,6 +147,34 @@ export class DrizzleMemberRepo<T extends Record<string, unknown>> implements Mem
         ),
       )
       .returning(COLS);
+    return rows[0] ?? null;
+  }
+
+  /** 초대 취소: 단일 원자 UPDATE(status='invite_expired', 토큰 null화). trip_id·id·status='invited' 가드로 tripId 스코핑·멱등성 확보. 0행=비-pending/타-trip. */
+  async revokeInvite(tripId: string, inviteId: string): Promise<MemberRow | null> {
+    const rows = await this.db
+      .update(tripMembers)
+      .set({
+        status: "invite_expired",
+        invite_token_hash: null,
+        invite_token_expires_at: null,
+      })
+      .where(
+        and(
+          eq(tripMembers.trip_id, tripId),
+          eq(tripMembers.id, inviteId),
+          eq(tripMembers.status, "invited"),
+        ),
+      )
+      .returning(COLS);
+    return rows[0] ?? null;
+  }
+
+  async findMemberById(tripId: string, memberId: string): Promise<MemberRow | null> {
+    const rows = await this.db
+      .select(COLS)
+      .from(tripMembers)
+      .where(and(eq(tripMembers.trip_id, tripId), eq(tripMembers.id, memberId)));
     return rows[0] ?? null;
   }
 
