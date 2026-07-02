@@ -61,8 +61,12 @@ export interface MemberRepo {
   findMemberById(tripId: string, memberId: string): Promise<MemberRow | null>;
   findMembership(tripId: string, userId: string): Promise<MemberRow | null>;
   listByTrip(tripId: string): Promise<MemberPublic[]>;
-  /** 멤버 수정 — status는 **user_id 바인딩된 joined↔deactivated만**(invited→joined 위조 차단, finding #3 pass3). 0행=불가/부재. */
-  updateMember(tripId: string, memberId: string, patch: MemberUpdate): Promise<MemberPublic | null>;
+  /** 멤버 수정 — status는 **user_id 바인딩된 joined↔deactivated만**. 비활성은 trip 락 하 last-admin 재검증(F6). 0행=불가/부재, "last_admin"=마지막 admin 비활성 차단. */
+  updateMember(
+    tripId: string,
+    memberId: string,
+    patch: MemberUpdate,
+  ): Promise<MemberPublic | null | "last_admin">;
   isLastActiveAdmin(tripId: string, memberId: string): Promise<boolean>;
   countActiveAdmins(tripId: string): Promise<number>;
   /** 어드민 원자 양도 — trip row FOR UPDATE 하 강등 선행→승격 후행(uq_one_admin non-deferrable, 역순 시 순간 2 admin 위반). */
@@ -208,12 +212,13 @@ export class DrizzleMemberRepo<T extends Record<string, unknown>> implements Mem
     return this.db.select(PUBLIC_COLS).from(tripMembers).where(eq(tripMembers.trip_id, tripId));
   }
 
-  /** 멤버 수정. status 변경은 user_id 바인딩된 joined↔deactivated만(invited→joined 위조 차단, finding #3 pass3). */
+  /** 멤버 수정. status 변경은 user_id 바인딩된 joined↔deactivated만(invited→joined 위조 차단, finding #3 pass3).
+   *  (F6) 비활성 전이는 trip 락 하 원자로 — 양도의 동시 승격과 직렬화해 last-admin 재검증이 stale하지 않게. */
   async updateMember(
     tripId: string,
     memberId: string,
     patch: MemberUpdate,
-  ): Promise<MemberPublic | null> {
+  ): Promise<MemberPublic | null | "last_admin"> {
     const set: { display_name?: string; status?: "joined" | "deactivated" } = {};
     if (patch.display_name !== undefined) set.display_name = patch.display_name;
     if (patch.status !== undefined) set.status = patch.status;
@@ -224,9 +229,39 @@ export class DrizzleMemberRepo<T extends Record<string, unknown>> implements Mem
         .where(and(eq(tripMembers.trip_id, tripId), eq(tripMembers.id, memberId)));
       return cur[0] ?? null;
     }
+    // 비활성: trip 락 하 재검증(F6). 마지막 활성 admin이면 차단(0 admin 방지).
+    if (patch.status === "deactivated") {
+      return this.db.transaction(async (tx): Promise<MemberPublic | null | "last_admin"> => {
+        await tx.select({ id: trips.id }).from(trips).where(eq(trips.id, tripId)).for("update");
+        const admins = await tx
+          .select({ id: tripMembers.id })
+          .from(tripMembers)
+          .where(
+            and(
+              eq(tripMembers.trip_id, tripId),
+              eq(tripMembers.role, "admin"),
+              eq(tripMembers.status, "joined"),
+            ),
+          );
+        if (admins.length === 1 && admins[0]?.id === memberId) return "last_admin" as const;
+        const rows = await tx
+          .update(tripMembers)
+          .set(set)
+          .where(
+            and(
+              eq(tripMembers.trip_id, tripId),
+              eq(tripMembers.id, memberId),
+              isNotNull(tripMembers.user_id),
+              inArray(tripMembers.status, ["joined", "deactivated"]),
+            ),
+          )
+          .returning(PUBLIC_COLS);
+        return rows[0] ?? null;
+      });
+    }
+    // display_name·joined 전이는 단문(락 불요).
     const conds = [eq(tripMembers.trip_id, tripId), eq(tripMembers.id, memberId)];
     if (patch.status !== undefined) {
-      // 전이 제약: 바인딩된 멤버의 joined↔deactivated만
       conds.push(isNotNull(tripMembers.user_id));
       conds.push(inArray(tripMembers.status, ["joined", "deactivated"]));
     }

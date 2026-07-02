@@ -81,12 +81,11 @@ export class MembersService {
     return this.repo.listByTrip(tripId);
   }
 
-  /** 멤버 수정(display_name·status). admin 비활성 시 마지막 어드민 가드(§9.5). 잘못된 전이/부재→Conflict(finding #3 pass3). */
+  /** 멤버 수정(display_name·status). 비활성 시 마지막 어드민 가드(§9.5)는 repo가 trip 락 하 원자 재검증(F6). */
   async updateMember(tripId: string, memberId: string, patch: MemberUpdate): Promise<MemberPublic> {
-    if (patch.status === "deactivated" && (await this.repo.isLastActiveAdmin(tripId, memberId))) {
-      throw new ForbiddenError("cannot deactivate the last admin", { tripId, memberId });
-    }
     const row = await this.repo.updateMember(tripId, memberId, patch);
+    if (row === "last_admin")
+      throw new ForbiddenError("cannot deactivate the last admin", { tripId, memberId });
     if (!row)
       throw new ConflictError("member update not allowed (invalid transition or not found)", {
         tripId,

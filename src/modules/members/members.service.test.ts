@@ -254,3 +254,58 @@ describe("MembersService.transferAdmin (④ 어드민 양도)", () => {
     await expect(svc().transferAdmin(trip, fromId, invitedId)).rejects.toThrow(ConflictError);
   });
 });
+
+describe("MembersService.transferAdmin 동시성 (④ · F6)", () => {
+  // (F9·F11) 결정론적 증명: 외부 tx가 trip 락을 쥔 채 '양도 완료'(A 강등·B 승격)를 시뮬레이션 후 해제.
+  // updateMember(B, deactivate)는 락 대기 후 **락 하 재검증**으로 B(이제 유일 admin) 비활성을 차단해야 함.
+  // 미수정(락 미획득)=대기 안 함→red · stale 사전검사+락대기 구현=재검증 없이 B 비활성→0 admin→red · 수정=차단→green.
+  it("[F6] 승격된 대상(B) 비활성은 락 하 재검증으로 차단 — 0 admin 방지", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const aId = await mkMember(ctx.sql, trip, { userId: u1, role: "admin", status: "joined" });
+    const u2 = await mkUser(ctx.sql);
+    const bId = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+    const s = svc();
+
+    let outcome: "pending" | "resolved" | "rejected" = "pending";
+    let pending!: Promise<unknown>;
+    await ctx.sql.begin(async (tx) => {
+      await tx`select id from trips where id = ${trip} for update`; // 양도가 trip 락을 쥔 상태를 모사
+      pending = s.updateMember(trip, bId, { status: "deactivated" }).then(
+        () => (outcome = "resolved"),
+        () => (outcome = "rejected"),
+      );
+      await new Promise((r) => setTimeout(r, 150));
+      expect(outcome).toBe("pending"); // 수정=락 대기(미수정=락 미획득→즉시 완료→red)
+      // 락 하에서 '양도 완료' 시뮬레이션: 강등 선행(A→member) 후 승격(B→admin) — uq_one_admin 안전.
+      await tx`update trip_members set role = 'member' where trip_id = ${trip} and id = ${aId}`;
+      await tx`update trip_members set role = 'admin' where trip_id = ${trip} and id = ${bId}`;
+    }); // 커밋 → 락 해제 → updateMember가 락 획득·재검증
+    await pending;
+    // 락 하 재검증: B는 이제 유일 admin → 비활성 차단(ForbiddenError). 0 admin 방지.
+    expect(outcome).toBe("rejected"); // stale 사전검사 구현이면 resolved(0 admin)→red
+    expect(await new DrizzleMemberRepo(ctx.db).countActiveAdmins(trip)).toBe(1);
+  });
+
+  it("양도 vs 구 admin(A) 자기비활성 경쟁 → 활성 admin 정확히 1명, 500 없음", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const fromId = await mkMember(ctx.sql, trip, { userId: u1, role: "admin", status: "joined" });
+    const u2 = await mkUser(ctx.sql);
+    const toId = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+    const s = svc();
+    const results = await Promise.allSettled([
+      s.transferAdmin(trip, fromId, toId),
+      s.updateMember(trip, fromId, { status: "deactivated" }),
+    ]);
+    const repo = new DrizzleMemberRepo(ctx.db);
+    expect(await repo.countActiveAdmins(trip)).toBe(1);
+    expect((await repo.findMembership(trip, u2))?.role).toBe("admin");
+    for (const r of results) {
+      if (r.status === "rejected") {
+        expect((r.reason as { status?: number }).status).toBeGreaterThanOrEqual(400);
+        expect((r.reason as { status?: number }).status).toBeLessThan(500);
+      }
+    }
+  });
+});
