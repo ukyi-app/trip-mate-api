@@ -44,4 +44,23 @@ describe("settlement OpenAPI 계약", () => {
     expect(schemas.TransferEvent).toBeDefined();
     expect(schemas.MarkUnpaidResult).toBeDefined();
   });
+  it("멱등 4개 라우트에 Idempotency-Key 헤더 파라미터(optional·maxLength 200)", () => {
+    type Param = { name: string; in: string; required?: boolean; schema?: { maxLength?: number } };
+    const d = doc();
+    const targets = [
+      "/v1/trips/{tripId}/settlement/finalize",
+      "/v1/trips/{tripId}/settlement/unlock",
+      "/v1/trips/{tripId}/settlement/transfers/{transferId}/mark-paid",
+      "/v1/trips/{tripId}/settlement/transfers/{transferId}/mark-unpaid",
+    ];
+    for (const path of targets) {
+      const post = (d.paths as Record<string, { post?: { parameters?: Param[] } }>)[path]?.post;
+      const p = (post?.parameters ?? []).find(
+        (x) => x.name === "Idempotency-Key" && x.in === "header",
+      );
+      expect(p, path).toBeDefined();
+      expect(p!.required, path).toBe(false);
+      expect(p!.schema?.maxLength, path).toBe(200);
+    }
+  });
 });
