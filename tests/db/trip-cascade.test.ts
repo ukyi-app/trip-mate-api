@@ -74,4 +74,32 @@ describe("trip 삭제 cascade 다이아몬드(복합 FK NO ACTION 무위반)", (
     >`select count(*)::int as n from trips where id=${trip}`;
     expect(trow[0]!.n).toBe(0);
   });
+
+  // (F12 가드) DrizzleTripRepo.delete는 trips 삭제 전에 expenses·settlements를 선삭제해,
+  // trip_members/trips를 NO ACTION 복합 FK로 참조하는 자식들을 폐포에서 먼저 비운다(다이아몬드 cascade 순서 위험 회피).
+  // 이 가드는 그 NO ACTION 참조자 집합을 스키마 카탈로그에서 introspection해 "선삭제로 커버되는 폐포"에 고정한다.
+  // 새 trip-scoped 자식이 trip_members/trips를 NO ACTION으로 참조하면서 이 폐포 밖(expenses/settlements 서브트리 밖)에
+  // 추가되면 이 테스트가 red → repo.delete의 선삭제 커버리지를 갱신하고 아래 COVERED를 의식적으로 갱신하도록 강제한다.
+  it("[F12 가드] trip_members/trips NO ACTION 참조 자식은 모두 repo.delete 선삭제 폐포(expenses·settlements 서브트리)에 포함", async () => {
+    const rows = await ctx.sql<{ t: string }[]>`
+      SELECT DISTINCT con.conrelid::regclass::text AS t
+      FROM pg_constraint con
+      JOIN pg_class ref ON ref.oid = con.confrelid
+      WHERE con.contype = 'f'
+        AND con.confdeltype = 'a'  -- ON DELETE NO ACTION
+        AND ref.relname IN ('trip_members', 'trips')`;
+    const actual = rows.map((r) => r.t.replace(/^public\./, "")).sort();
+    // repo.delete가 `DELETE expenses`·`DELETE settlements`(하위 cascade 포함)로 최종 `DELETE trips` 이전에 비우는 테이블들.
+    // 새 NO ACTION 참조자가 이 목록 밖에서 나타나면(=폐포 밖) F12 재발 위험 → 아래를 갱신하기 전 red.
+    const COVERED = [
+      "expense_audit_logs",
+      "expense_participants",
+      "expenses",
+      "settlement_member_summaries",
+      "settlement_transfers",
+      "settlement_transfer_events",
+      "settlements",
+    ].sort();
+    expect(actual).toEqual(COVERED);
+  });
 });
