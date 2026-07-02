@@ -1626,6 +1626,18 @@
             "required": true,
             "name": "tripId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "재시도 안전 멱등 키(≤200자). 동일 키 재요청은 저장된 응답을 replay한다.",
+              "example": "3f1c8b2e-9a44-4c1e-8b0e-2d5f7c6a1b90"
+            },
+            "required": false,
+            "description": "재시도 안전 멱등 키(≤200자). 동일 키 재요청은 저장된 응답을 replay한다.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -2320,6 +2332,18 @@
             "required": true,
             "name": "tripId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "재시도 안전 멱등 키(≤200자). 동일 키 재요청은 저장된 응답을 replay한다.",
+              "example": "3f1c8b2e-9a44-4c1e-8b0e-2d5f7c6a1b90"
+            },
+            "required": false,
+            "description": "재시도 안전 멱등 키(≤200자). 동일 키 재요청은 저장된 응답을 replay한다.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -2402,6 +2426,18 @@
             "required": true,
             "name": "tripId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "재시도 안전 멱등 키(≤200자). 동일 키 재요청은 저장된 응답을 replay한다.",
+              "example": "3f1c8b2e-9a44-4c1e-8b0e-2d5f7c6a1b90"
+            },
+            "required": false,
+            "description": "재시도 안전 멱등 키(≤200자). 동일 키 재요청은 저장된 응답을 replay한다.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "responses": {
@@ -2473,6 +2509,18 @@
             "required": true,
             "name": "transferId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "재시도 안전 멱등 키(≤200자). 동일 키 재요청은 저장된 응답을 replay한다.",
+              "example": "3f1c8b2e-9a44-4c1e-8b0e-2d5f7c6a1b90"
+            },
+            "required": false,
+            "description": "재시도 안전 멱등 키(≤200자). 동일 키 재요청은 저장된 응답을 replay한다.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "responses": {
@@ -2544,6 +2592,18 @@
             "required": true,
             "name": "transferId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "재시도 안전 멱등 키(≤200자). 동일 키 재요청은 저장된 응답을 replay한다.",
+              "example": "3f1c8b2e-9a44-4c1e-8b0e-2d5f7c6a1b90"
+            },
+            "required": false,
+            "description": "재시도 안전 멱등 키(≤200자). 동일 키 재요청은 저장된 응답을 replay한다.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "responses": {
