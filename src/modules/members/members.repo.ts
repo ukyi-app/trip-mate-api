@@ -1,6 +1,7 @@
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { tripMembers } from "../../db/schema/members.ts";
+import { trips } from "../../db/schema/trips.ts";
 import { normalizeEmail } from "./domain/invite-token.ts";
 import { ConflictError } from "../../core/errors.ts";
 
@@ -16,6 +17,11 @@ export interface MemberUpdate {
   display_name?: string | undefined;
   status?: "joined" | "deactivated" | undefined;
 }
+
+/** 어드민 양도 결과. 실패는 서비스가 HTTP 에러로 매핑(not_admin→409, target_missing→404, target_ineligible→409). */
+export type TransferAdminOutcome =
+  | { ok: true; member: MemberPublic }
+  | { ok: false; reason: "not_admin" | "target_missing" | "target_ineligible" };
 
 export interface MemberRow {
   id: string;
@@ -59,6 +65,12 @@ export interface MemberRepo {
   updateMember(tripId: string, memberId: string, patch: MemberUpdate): Promise<MemberPublic | null>;
   isLastActiveAdmin(tripId: string, memberId: string): Promise<boolean>;
   countActiveAdmins(tripId: string): Promise<number>;
+  /** 어드민 원자 양도 — trip row FOR UPDATE 하 강등 선행→승격 후행(uq_one_admin non-deferrable, 역순 시 순간 2 admin 위반). */
+  transferAdmin(
+    tripId: string,
+    fromMemberId: string,
+    toMemberId: string,
+  ): Promise<TransferAdminOutcome>;
   ensureCreatorMembership(
     i: { tripId: string; userId: string; displayName: string; email: string },
     tx?: unknown,
@@ -290,5 +302,84 @@ export class DrizzleMemberRepo<T extends Record<string, unknown>> implements Mem
     const row = rows[0] ?? null;
     if (!row) throw new ConflictError("failed to ensure creator membership", { tripId: i.tripId });
     return row;
+  }
+
+  /** ④ 어드민 양도: 단일 tx + trip row FOR UPDATE(동일 trip 동시 양도 직렬화, trip_members엔 version 없음).
+   *  적격성은 잠금 하 read로 판정(실패 시 무-쓰기 → 커밋해도 무해), 쓰기는 강등→승격 순서 강제 + CAS WHERE로
+   *  TOCTOU 제거. CAS 0행은 잠금 하 재검증 실패(경쟁)이므로 throw → 강등 롤백(원자성). */
+  async transferAdmin(
+    tripId: string,
+    fromMemberId: string,
+    toMemberId: string,
+  ): Promise<TransferAdminOutcome> {
+    return this.db.transaction(async (tx): Promise<TransferAdminOutcome> => {
+      await tx.select({ id: trips.id }).from(trips).where(eq(trips.id, tripId)).for("update");
+
+      const [from] = await tx
+        .select({ role: tripMembers.role, status: tripMembers.status })
+        .from(tripMembers)
+        .where(and(eq(tripMembers.trip_id, tripId), eq(tripMembers.id, fromMemberId)));
+      if (!from || from.role !== "admin" || from.status !== "joined")
+        return { ok: false, reason: "not_admin" };
+
+      const [to] = await tx
+        .select({
+          role: tripMembers.role,
+          status: tripMembers.status,
+          user_id: tripMembers.user_id,
+        })
+        .from(tripMembers)
+        .where(and(eq(tripMembers.trip_id, tripId), eq(tripMembers.id, toMemberId)));
+      if (!to) return { ok: false, reason: "target_missing" };
+      if (
+        to.status !== "joined" ||
+        to.user_id === null ||
+        to.role !== "member" ||
+        toMemberId === fromMemberId
+      )
+        return { ok: false, reason: "target_ineligible" };
+
+      // (1) 강등 선행 — CAS WHERE(role='admin' AND status='joined')
+      const demoted = await tx
+        .update(tripMembers)
+        .set({ role: "member" })
+        .where(
+          and(
+            eq(tripMembers.trip_id, tripId),
+            eq(tripMembers.id, fromMemberId),
+            eq(tripMembers.role, "admin"),
+            eq(tripMembers.status, "joined"),
+          ),
+        )
+        .returning({ id: tripMembers.id });
+      if (demoted.length === 0)
+        throw new ConflictError("admin transfer race: caller no longer admin", {
+          tripId,
+          fromMemberId,
+        });
+
+      // (2) 승격 후행 — CAS WHERE(joined·bound·member·≠from)
+      const promoted = await tx
+        .update(tripMembers)
+        .set({ role: "admin" })
+        .where(
+          and(
+            eq(tripMembers.trip_id, tripId),
+            eq(tripMembers.id, toMemberId),
+            eq(tripMembers.status, "joined"),
+            isNotNull(tripMembers.user_id),
+            eq(tripMembers.role, "member"),
+            ne(tripMembers.id, fromMemberId),
+          ),
+        )
+        .returning(PUBLIC_COLS);
+      if (promoted.length === 0)
+        throw new ConflictError("admin transfer race: target no longer eligible", {
+          tripId,
+          toMemberId,
+        });
+
+      return { ok: true, member: promoted[0]! };
+    });
   }
 }
