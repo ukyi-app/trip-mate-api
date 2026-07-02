@@ -154,4 +154,36 @@ describe("members/invites 라우트", () => {
     );
     expect(res.status).toBe(404);
   });
+
+  it("취소된 초대는 멤버 목록에 invite_expired로 노출(응답 스키마 정합, 500 아님)", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
+    const cmd = await s.createInvite(trip, "listed@example.com", "L");
+    await s.revokeInvite(trip, cmd.inviteId);
+    const res = await appFor(admin, "admin@example.com").request(`/trips/${trip}/members`);
+    expect(res.status).toBe(200); // memberResponseSchema enum이 invite_expired 수용 → serialize 성공
+    const rows = (await res.json()) as { id: string; status: string }[];
+    expect(rows.find((r) => r.id === cmd.inviteId)?.status).toBe("invite_expired");
+  });
+
+  it("invite_expired 행을 PATCH로 joined 위조 시도 → 거부(user_id null·전이 가드)", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    const s = svc();
+    await s.ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
+    const cmd = await s.createInvite(trip, "guard@example.com", "G");
+    await s.revokeInvite(trip, cmd.inviteId);
+    const res = await appFor(admin, "admin@example.com").request(
+      `/trips/${trip}/members/${cmd.inviteId}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "joined" }),
+      },
+    );
+    expect(res.status).not.toBe(200);
+    expect([403, 404, 409, 422]).toContain(res.status); // updateMember: isNotNull(user_id)+status∈{joined,deactivated} 가드 0행 → 409
+  });
 });
