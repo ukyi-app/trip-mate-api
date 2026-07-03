@@ -9,7 +9,8 @@ resources:
     cpu: 500m
     memory: 256Mi
 route:
-  public: false # 내부 전용(trip-mate-api.home.<domain>) — public 노출은 명시 opt-in
+  public: true # 공개(trip-mate-api.ukyi.app, Cloudflare Tunnel)
+  host: trip-mate-api.ukyi.app
   paths:
     - /
 probes:
