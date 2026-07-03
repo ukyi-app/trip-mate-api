@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
       - run: bun install --frozen-lockfile
       - run: bun run check
 
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
       - run: bun install --frozen-lockfile
       - run: bun run test
 
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
       - run: bun install --frozen-lockfile
       # gen:openapi는 무-IO(stub deps) → env 불요. 재생성 후 커밋본과 diff.
       - run: bun run gen:openapi
@@ -58,7 +58,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
       - run: bun install --frozen-lockfile
       - run: bun run gen:openapi
       - name: R2 업로드(S3 호환, secret 게이트)
