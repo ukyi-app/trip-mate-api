@@ -1,5 +1,6 @@
-# main 머지 = 빌드 + GHCR push. 배포 반영은 homelab측 GHCR 폴링/온보딩이 권위.
-# 빌드 로직의 SSOT는 homelab의 reusable 워크플로.
+# main 머지 = 빌드 + GHCR push + homelab bump-poll 즉시 디스패치(reusable 흡수 deploy-trigger).
+# 빌드·디스패치 로직 SSOT는 homelab reusable-app-build.yaml@main. 여기선 시크릿 쌍만 passthrough
+# (HOMELAB_DISPATCH_APP 미프로비저닝이면 reusable이 clean skip — homelab 크론 폴링이 백스톱).
 name: release
 on:
   push:
@@ -12,3 +13,6 @@ jobs:
     uses: ukyi-app/homelab/.github/workflows/reusable-app-build.yaml@main
     with:
       app: ${{ github.event.repository.name }}
+    secrets:
+      HOMELAB_DISPATCH_APP_ID: ${{ secrets.HOMELAB_DISPATCH_APP_ID }}
+      HOMELAB_DISPATCH_APP_PRIVATE_KEY: ${{ secrets.HOMELAB_DISPATCH_APP_PRIVATE_KEY }}
