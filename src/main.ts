@@ -29,6 +29,7 @@ import { createMailer } from "./modules/notifications/mailer.resend.ts";
 import { FilesClient } from "./modules/files/files.client.ts";
 import { DrizzleReceiptRepo } from "./modules/files/receipts.repo.ts";
 import { ReceiptsService } from "./modules/files/receipts.service.ts";
+import { ClaudeUsageParser } from "./modules/usage-imports/usage-parser.claude.ts";
 
 const core = createCore();
 // boot self-migrate(homelab 계약) — 서빙 전 멱등 마이그레이션. 직결 URL, 실패 시 부팅 중단(fail-closed).
@@ -107,6 +108,12 @@ const receipts =
         { bucket: core.config.FILES_BUCKET },
       )
     : undefined;
+// 사용내역 파싱(LLM) — 키 있을 때만(없으면 parse 라우트 503).
+const usageParser = core.config.ANTHROPIC_API_KEY
+  ? new ClaudeUsageParser(core.config.ANTHROPIC_API_KEY, {
+      onError: (e) => core.logger.warn({ err: e }, "usage parse failed"),
+    })
+  : undefined;
 const v1 = buildV1App({
   tripsService,
   membersService,
@@ -121,6 +128,7 @@ const v1 = buildV1App({
   rateLimit: rateLimitWrites(redis, { scope: "v1w", max: 60, windowSec: 60 }), // 공개 API 쓰기 60/min/IP
   mailer, // 초대 이메일(Resend 또는 no-op)
   ...(receipts ? { receipts } : {}), // 영수증 프록시(files 서버)
+  ...(usageParser ? { usageParser } : {}), // 사용내역 파싱(LLM)
 });
 app.route("/", v1); // v1 라우트는 /v1/... (basePath)
 

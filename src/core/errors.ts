@@ -47,6 +47,18 @@ export class SettlementInvariantError extends AppError {
     super("SettlementInvariantError", 422, message, meta);
   }
 }
+export class UpstreamError extends AppError {
+  // 외부 의존(LLM 등) 호출 실패·비정형 응답 → 502. 상세는 meta로(원문 비노출).
+  constructor(message?: string, meta?: unknown) {
+    super("UpstreamError", 502, message, meta);
+  }
+}
+export class UnavailableError extends AppError {
+  // 기능 미설정(graceful off) — 라우트는 등록하되 503으로 명시적 신호(스펙-런타임 불일치 방지).
+  constructor(message?: string, meta?: unknown) {
+    super("UnavailableError", 503, message, meta);
+  }
+}
 
 /** RFC 9457 problem+json 매핑. AppError는 code/status, 그 외 500.
  *  app은 plain Hono(테스트)·OpenAPIHono(main) 모두 수용(Hono↔OpenAPIHono의 .fetch 변성 회피). */

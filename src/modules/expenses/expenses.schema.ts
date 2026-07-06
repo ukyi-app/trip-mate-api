@@ -1,15 +1,19 @@
 import { z } from "@hono/zod-openapi";
 
 // 최소단위 string(D1). 음수 없음(환불=후속). max 19자 + BIGINT 범위 refine(finding #2 pass3 — 무한 길이/오버플로 차단).
+// minorString·PAYMENT·CATEGORY는 usage-imports(지출 초안 파싱)도 공유 — export.
 const BIGINT_MAX = 9223372036854775807n;
-const minorString = z
+export const minorString = z
   .string()
   .regex(/^\d+$/)
   .max(19)
-  .refine((s) => BigInt(s) <= BIGINT_MAX, { message: "amount out of BIGINT range" });
+  // regex 실패 후에도 refine이 실행되므로(zod v4) BigInt("65.00") throw → 500 방지: 숫자 재확인 가드
+  .refine((s) => /^\d+$/.test(s) && BigInt(s) <= BIGINT_MAX, {
+    message: "amount out of BIGINT range",
+  });
 const STATE = ["included", "personal", "record_only"] as const;
-const PAYMENT = ["cash", "card", "transit_card", "easy_pay", "other"] as const;
-const CATEGORY = [
+export const PAYMENT = ["cash", "card", "transit_card", "easy_pay", "other"] as const;
+export const CATEGORY = [
   "food",
   "cafe_snack",
   "transport",

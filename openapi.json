@@ -1110,6 +1110,113 @@
           "actor_member_id",
           "created_at"
         ]
+      },
+      "UsageParseResponse": {
+        "type": "object",
+        "properties": {
+          "drafts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageDraft"
+            }
+          }
+        },
+        "required": [
+          "drafts"
+        ]
+      },
+      "UsageDraft": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "local_amount": {
+            "type": "string",
+            "maxLength": 19,
+            "pattern": "^\\d+$"
+          },
+          "local_currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "spent_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "food",
+              "cafe_snack",
+              "transport",
+              "lodging",
+              "shopping",
+              "sightseeing",
+              "convenience",
+              "other"
+            ]
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": [
+              "cash",
+              "card",
+              "transit_card",
+              "easy_pay",
+              "other"
+            ]
+          },
+          "card_billed_amount": {
+            "type": "string",
+            "maxLength": 19,
+            "pattern": "^\\d+$"
+          },
+          "card_billed_currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "title",
+          "local_amount",
+          "local_currency",
+          "spent_at",
+          "confidence"
+        ]
+      },
+      "UsageParseRequest": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "reference_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "disclosure_accepted": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "text",
+          "disclosure_accepted"
+        ]
       }
     },
     "parameters": {}
@@ -3020,6 +3127,88 @@
           },
           "404": {
             "description": "404 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trips/{tripId}/usage-imports/parse": {
+      "post": {
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "tripId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsageParseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageParseResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "422 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "502 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "503 problem+json",
             "content": {
               "application/problem+json": {
                 "schema": {
