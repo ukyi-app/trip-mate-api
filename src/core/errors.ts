@@ -31,6 +31,11 @@ export class ValidationError extends AppError {
     super("ValidationError", 422, message, meta);
   }
 }
+export class UnsupportedMediaTypeError extends AppError {
+  constructor(message?: string, meta?: unknown) {
+    super("UnsupportedMediaTypeError", 415, message, meta);
+  }
+}
 export class FxUnresolvedError extends AppError {
   // resolveFx가 needsManual(모든 fallback 실패) → 클라가 manualRate 첨부 재요청. 422.
   constructor(message?: string, meta?: unknown) {
