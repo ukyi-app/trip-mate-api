@@ -1,0 +1,1 @@
+ALTER TABLE "expenses" ADD COLUMN "receipt_object_key" text;

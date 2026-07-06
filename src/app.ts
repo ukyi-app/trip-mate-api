@@ -16,6 +16,8 @@ import type { TripDefaultsPort } from "./modules/fx/fx.types.ts";
 import type { IdempotencyStore } from "./core/idempotency.ts";
 import type { SessionResolver, MembershipLookup } from "./core/guards.ts";
 import type { Mailer } from "./modules/notifications/mailer.port.ts";
+import type { ReceiptsPort } from "./modules/files/receipts.service.ts";
+import { registerReceiptRoutes } from "./modules/files/receipts.controller.ts";
 
 export interface V1Deps {
   tripsService: TripsService<Record<string, unknown>>;
@@ -30,6 +32,7 @@ export interface V1Deps {
   webOrigins: string[];
   rateLimit?: MiddlewareHandler; // 쓰기 rate limit(main에서 Redis 바인딩 주입, 없으면 미적용)
   mailer?: Mailer; // 초대 이메일 발송(없으면 skip). inviteBaseUrl은 webOrigins[0] 파생.
+  receipts?: ReceiptsPort; // 영수증 프록시(files 서버, 없으면 라우트 미등록)
 }
 
 /** /v1 라우트·security·미들웨어(CORS→CSRF→라우트)를 등록한 OpenAPIHono 반환.
@@ -75,6 +78,12 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
     memberLookup: deps.memberLookup,
     idempotencyStore: deps.idempotencyStore,
   });
+  if (deps.receipts)
+    registerReceiptRoutes(v1, {
+      service: deps.receipts,
+      resolver: deps.resolver,
+      memberLookup: deps.memberLookup,
+    });
   // 계약 자체 서빙(homelab self-host) — 앱이 OpenAPI 스펙을 /v1/openapi.json 으로 노출.
   // plain route(스펙 미포함)·GET(CSRF bypass)·인증 없음. 1회 생성 후 캐시(gen:openapi와 동일 구성).
   let cachedDoc: ReturnType<typeof v1.getOpenAPI31Document> | undefined;

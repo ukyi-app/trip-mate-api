@@ -26,6 +26,9 @@ import { sweepExpiredIdempotency } from "./core/idempotency.ts";
 import { runMigrations } from "./db/migrate.ts";
 import { rateLimitWrites } from "./core/rate-limit.ts";
 import { createMailer } from "./modules/notifications/mailer.resend.ts";
+import { FilesClient } from "./modules/files/files.client.ts";
+import { DrizzleReceiptRepo } from "./modules/files/receipts.repo.ts";
+import { ReceiptsService } from "./modules/files/receipts.service.ts";
 
 const core = createCore();
 // boot self-migrate(homelab 계약) — 서빙 전 멱등 마이그레이션. 직결 URL, 실패 시 부팅 중단(fail-closed).
@@ -95,6 +98,15 @@ const mailer = createMailer({
   onError: (e) => core.logger.warn({ err: e }, "invite email send failed"),
   ...(core.config.RESEND_API_KEY ? { apiKey: core.config.RESEND_API_KEY } : {}),
 });
+// 영수증 프록시 — files 서버 config 있을 때만(없으면 라우트 미등록).
+const receipts =
+  core.config.FILES_BASE_URL && core.config.FILES_API_KEY
+    ? new ReceiptsService(
+        new FilesClient(core.config.FILES_BASE_URL, core.config.FILES_API_KEY),
+        new DrizzleReceiptRepo(core.db),
+        { bucket: core.config.FILES_BUCKET },
+      )
+    : undefined;
 const v1 = buildV1App({
   tripsService,
   membersService,
@@ -108,6 +120,7 @@ const v1 = buildV1App({
   webOrigins: core.config.WEB_ORIGINS,
   rateLimit: rateLimitWrites(redis, { scope: "v1w", max: 60, windowSec: 60 }), // 공개 API 쓰기 60/min/IP
   mailer, // 초대 이메일(Resend 또는 no-op)
+  ...(receipts ? { receipts } : {}), // 영수증 프록시(files 서버)
 });
 app.route("/", v1); // v1 라우트는 /v1/... (basePath)
 

@@ -33,6 +33,10 @@ export const env = createEnv({
     // ── 초대 이메일(Resend) ── 없으면 발송 skip(no-op)
     RESEND_API_KEY: z.string().optional(),
     MAIL_FROM: z.string().default("noreply@ukyi.app"), // Resend 검증된 발신 도메인
+    // ── 파일 서버(영수증 업로드, files.home) ── BASE_URL·API_KEY 없으면 영수증 라우트 미등록
+    FILES_BASE_URL: z.string().url().optional(),
+    FILES_API_KEY: z.string().optional(),
+    FILES_BUCKET: z.string().default("trip-mate"),
 
     USE_SECURE_COOKIES: z
       .enum(["true", "false"])
