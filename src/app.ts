@@ -19,7 +19,10 @@ import type { Mailer } from "./modules/notifications/mailer.port.ts";
 import type { ReceiptsPort } from "./modules/files/receipts.service.ts";
 import { registerReceiptRoutes } from "./modules/files/receipts.controller.ts";
 import type { UsageParserPort } from "./modules/usage-imports/usage-parser.port.ts";
-import { registerUsageImportRoutes } from "./modules/usage-imports/usage-imports.controller.ts";
+import {
+  registerUsageImportRoutes,
+  type TripContext,
+} from "./modules/usage-imports/usage-imports.controller.ts";
 
 export interface V1Deps {
   tripsService: TripsService<Record<string, unknown>>;
@@ -37,6 +40,7 @@ export interface V1Deps {
   mailer?: Mailer; // 초대 이메일 발송(없으면 skip). inviteBaseUrl은 webOrigins[0] 파생.
   receipts?: ReceiptsPort; // 영수증 프록시(files 서버, 없으면 라우트 미등록)
   usageParser?: UsageParserPort; // 사용내역 파싱 LLM(없으면 parse 라우트 503 — 라우트는 항상 등록)
+  tripContext?: TripContext; // 사용내역 날짜 보정용 여행 timezone·기간 조회(없으면 KST 폴백)
 }
 
 /** /v1 라우트·security·미들웨어(CORS→CSRF→라우트)를 등록한 OpenAPIHono 반환.
@@ -93,6 +97,7 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
   registerUsageImportRoutes(v1, {
     resolver: deps.resolver,
     memberLookup: deps.memberLookup,
+    ...(deps.tripContext ? { tripContext: deps.tripContext } : {}), // 여행 timezone·기간 날짜 보정
     ...(deps.usageParser ? { parser: deps.usageParser } : {}),
   });
   // 계약 자체 서빙(homelab self-host) — 앱이 OpenAPI 스펙을 /v1/openapi.json 으로 노출.

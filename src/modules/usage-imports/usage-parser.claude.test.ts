@@ -77,6 +77,23 @@ describe("buildUserPrompt (순수)", () => {
     expect(p).toContain("스타벅스");
     expect(p).not.toContain("010-1111-2222");
   });
+  it("여행 기간·timezone이 주어지면 프롬프트에 포함한다", () => {
+    const p = buildUserPrompt({
+      text: "08/02 델리 승인",
+      referenceDate: "2026-08-01",
+      tripTimezone: "America/New_York",
+      tripStart: "2026-08-01",
+      tripEnd: "2026-08-05",
+    });
+    expect(p).toContain("여행 기간");
+    expect(p).toContain("2026-08-01");
+    expect(p).toContain("2026-08-05");
+    expect(p).toContain("America/New_York");
+  });
+  it("여행 기간이 없으면 여행 기간 줄을 넣지 않는다", () => {
+    const p = buildUserPrompt({ text: "x", referenceDate: "2026-07-06" });
+    expect(p).not.toContain("여행 기간");
+  });
 });
 
 describe("validateDrafts (순수)", () => {
@@ -125,9 +142,14 @@ describe("validateDrafts (순수)", () => {
 });
 
 describe("SYSTEM_PROMPT 계약 앵커", () => {
-  it("승인취소 페어링 제외·연도 추론 confidence 하향·minor unit 규칙을 명시한다", () => {
+  it("승인취소 페어링 제외·연도 추론 confidence 하향·minor unit·여행 기간·timezone 규칙을 명시한다", () => {
     expect(SYSTEM_PROMPT).toContain("취소");
     expect(SYSTEM_PROMPT).toContain("confidence");
     expect(SYSTEM_PROMPT).toContain("37900");
+    expect(SYSTEM_PROMPT).toContain("여행 기간");
+    // spent_at 변환이 KST 하드코딩이 아니라 여행 timezone 기준(서쪽 timezone 하루 밀림 방지)
+    expect(SYSTEM_PROMPT).toContain("여행 timezone");
+    // 여행 기간 우선(미래 금지 규칙과의 충돌 해소 — 연말연시·중반 날짜)
+    expect(SYSTEM_PROMPT).toContain("우선순위");
   });
 });

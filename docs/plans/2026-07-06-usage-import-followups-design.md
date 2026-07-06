@@ -10,7 +10,10 @@
 - `UsageParseInput`에 `tripTimezone?`·`tripStart?`·`tripEnd?` 추가. `buildUserPrompt`가 여행 기간을 프롬프트에 명시.
 - 프롬프트 규칙: 연도 없는 날짜는 **여행 기간 내로 해석**, 기간 밖이면 **유지하되 confidence 하향**(거부 아님 — FE 확인이 최종 방어). referenceDate 기본값도 서버 KST → **trip timezone 기준 오늘**.
 - claude·codex 어댑터 공유(`SYSTEM_PROMPT`/`buildUserPrompt`)라 한 곳 수정.
-- 테스트: 프롬프트에 기간 포함·연도추론 confidence 하향(순수), 라우트 tripContext 조회·전달(fake).
+- **결정적 후검증(codex 리뷰 반영)**: LLM 출력을 신뢰하지 않고, 파싱 후 `clampOutOfWindowConfidence`(순수)가 각 초안의 여행-로컬 날짜를 계산해 여행 기간 밖이면 confidence를 강제 하향(≤0.3). 거부 아님 — FE 확인·여행 전 예약 등 정당 경계 케이스 보존. 모델 드리프트·프롬프트 인젝션 방어.
+- **시각 해석 결정(codex 리뷰)**: 사용내역의 날짜·시각은 **여행 timezone 기준(trip-local)**으로 해석한다. 카드 이슈어 클럭(KST)이 아니라 trip-local을 택한 이유 = 사용자가 붙여넣은 날짜(예 08/02)를 그대로 지출 날짜로 원하며, KST 해석은 서쪽 여행에서 하루 밀린다(사용자 의도 우선). 명시 시각의 UTC instant 정밀도는 근사이며 confidence·clamp·FE 확인이 방어층. 연도 없는 날짜는 여행 기간 우선 → 없으면 referenceDate 기준 과거(우선순위 명시로 미래-금지 규칙과의 충돌 해소).
+- **동의 경계(codex 리뷰)**: 프롬프트에 여행 기간·timezone이 포함되므로 `disclosure_accepted`의 계약 범위를 "사용내역 텍스트 + 여행 기간·timezone 전송 동의"로 명문화(스키마 주석·[[usage-import-parse-design]] §트러스트 바운더리). 최소 정보이며 이미 동의된 카드 텍스트에서 도출 가능.
+- 테스트: 프롬프트에 기간·timezone 포함·우선순위(순수), 라우트 tripContext 조회·전달·기간밖 clamp(fake), `clampOutOfWindowConfidence` 순수(westward tz·연말연시), 실 codex smoke(NY date-only·연말연시 교차).
 
 ## 슬라이스 2 — 파서 쿼터 + 메트릭
 

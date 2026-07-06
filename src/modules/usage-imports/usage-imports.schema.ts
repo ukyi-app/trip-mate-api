@@ -6,7 +6,8 @@ export const usageParseRequestSchema = z
   .object({
     text: z.string().min(1).max(4_000),
     reference_date: z.iso.date().optional(),
-    // 외부 LLM(Anthropic) 전송 고지에 사용자가 동의했음을 FE가 보증 — true가 아니면 422.
+    // 외부 파서(LLM)로 **사용내역 텍스트 + 해당 여행의 기간·timezone**을 전송하는 것에 사용자가 동의했음을
+    // FE가 보증 — true가 아니면 422. (여행 기간·timezone은 날짜 보정용이며 카드 텍스트에서 도출 가능한 최소 정보.)
     // 키 오배포로 기능이 켜져도 고지 UI 없는 클라이언트는 이 계약에서 걸린다(설계 §트러스트 바운더리).
     disclosure_accepted: z.literal(true),
   })

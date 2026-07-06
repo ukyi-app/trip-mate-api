@@ -85,7 +85,13 @@ const memberRepo = new DrizzleMemberRepo(core.db);
 const membersService = new MembersService(memberRepo, {
   ttlHours: core.config.INVITE_TOKEN_TTL_HOURS,
 });
-const tripsService = new TripsService(core.db, new DrizzleTripRepo(core.db), membersService);
+const tripRepo = new DrizzleTripRepo(core.db);
+const tripsService = new TripsService(core.db, tripRepo, membersService);
+// 사용내역 날짜 보정용 여행 컨텍스트(timezone·기간) 조회 — trip repo 재사용.
+const tripContext = async (tripId: string) => {
+  const t = await tripRepo.findById(tripId);
+  return t ? { timezone: t.timezone, start_date: t.start_date, end_date: t.end_date } : null;
+};
 const emailOf = async (userId: string): Promise<string> => {
   const rows = await core.db.select({ email: user.email }).from(user).where(eq(user.id, userId));
   return rows[0]?.email ?? "";
@@ -163,6 +169,7 @@ const v1 = buildV1App({
   mailer, // 초대 이메일(Resend 또는 no-op)
   ...(receipts ? { receipts } : {}), // 영수증 프록시(files 서버)
   ...(usageParser ? { usageParser } : {}), // 사용내역 파싱(LLM)
+  tripContext, // 사용내역 날짜 보정(여행 timezone·기간)
 });
 app.route("/", v1); // v1 라우트는 /v1/... (basePath)
 
