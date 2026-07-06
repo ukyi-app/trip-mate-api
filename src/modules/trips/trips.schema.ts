@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi";
+import { displayName } from "../../core/schema.ts";
 
 /** 공개 응답 DTO(내부 컬럼 omit). 명시 zod로 OpenAPI 안정. */
 export const tripResponseSchema = z
@@ -41,8 +42,10 @@ const tripFields = z.object({
   settlement_currency: z.string().length(3),
 });
 
-// start_date ≤ end_date(YYYY-MM-DD 사전식 비교) — DB trip_dates 제약을 422로 선차단(finding #2 pass3).
+// 생성 입력에만 있는 어드민 표시 이름(§6.1) — trips 컬럼 아님(생성자 멤버십 display_name으로). 초대와 동일 규약.
+// tripFields에 넣지 않음(updateTrip으로 새어 통화처럼 오인 수정되는 것 방지).
 export const createTripSchema = tripFields
+  .extend({ admin_display_name: displayName })
   .refine((d) => d.start_date <= d.end_date, {
     message: "start_date must be <= end_date",
     path: ["end_date"],
@@ -65,5 +68,7 @@ export const deleteTripResponseSchema = z
   .openapi("DeleteTripResult");
 export type TripResponse = z.infer<typeof tripResponseSchema>;
 export type CreateTrip = z.infer<typeof createTripSchema>;
+// trips 테이블 컬럼(admin_display_name 제외) — repo.create가 받는 형태.
+export type CreateTripColumns = z.infer<typeof tripFields>;
 export type UpdateTrip = z.infer<typeof updateTripSchema>;
 export type DeleteTripResult = z.infer<typeof deleteTripResponseSchema>;

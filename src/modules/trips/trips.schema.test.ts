@@ -9,6 +9,7 @@ const validInput = () => ({
   timezone: "Asia/Tokyo",
   primary_local_currency: "JPY",
   settlement_currency: "KRW",
+  admin_display_name: "여행대장", // §6.1 어드민 표시 이름(생성 입력)
 });
 
 describe("trips DTO", () => {
@@ -37,6 +38,23 @@ describe("trips DTO", () => {
     expect(createTripSchema.safeParse({ ...validInput(), timezone: "Mars/Phobos" }).success).toBe(
       false,
     ); // bogus IANA
+  });
+  it("admin_display_name 필수(§6.1)·1..60자·공백 트림", () => {
+    const { admin_display_name: _omit, ...noName } = validInput();
+    expect(createTripSchema.safeParse(noName).success).toBe(false); // 누락 → 불가
+    expect(createTripSchema.safeParse({ ...validInput(), admin_display_name: "" }).success).toBe(
+      false,
+    );
+    expect(
+      createTripSchema.safeParse({ ...validInput(), admin_display_name: "가".repeat(61) }).success,
+    ).toBe(false);
+    // 공백-only → 트림 후 빈값 → 거부(빈 이름 멤버십 방지)
+    expect(createTripSchema.safeParse({ ...validInput(), admin_display_name: "   " }).success).toBe(
+      false,
+    );
+    // 앞뒤 공백 트림 후 저장
+    const p = createTripSchema.parse({ ...validInput(), admin_display_name: "  김대장  " });
+    expect(p.admin_display_name).toBe("김대장");
   });
   it("update는 통화 immutable(파싱 시 통화 필드 제거)", () => {
     const parsed = updateTripSchema.parse({

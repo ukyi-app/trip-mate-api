@@ -20,7 +20,7 @@ function svc() {
   const members = new MembersService(new DrizzleMemberRepo(ctx.db), { ttlHours: 168 });
   return new TripsService(ctx.db, new DrizzleTripRepo(ctx.db), members);
 }
-const input = () => ({
+const input = (over: Record<string, unknown> = {}) => ({
   title: "도쿄",
   start_date: "2026-08-01",
   end_date: "2026-08-05",
@@ -28,6 +28,8 @@ const input = () => ({
   timezone: "Asia/Tokyo",
   primary_local_currency: "JPY",
   settlement_currency: "KRW",
+  admin_display_name: "여행대장",
+  ...over,
 });
 const actor = (id: string, email = "a@example.com") => ({ id, email });
 
@@ -38,6 +40,15 @@ describe("TripsService", () => {
     const trip = await s.createTrip(input(), actor(u));
     expect(trip.settlement_currency).toBe("KRW");
     expect(await s.listTrips(u)).toHaveLength(1);
+  });
+  it("생성자 멤버십 display_name = 입력한 admin_display_name(§6.1, 'Me' 하드코딩 아님)", async () => {
+    const u = await mkUser(ctx.sql);
+    const s = svc();
+    const trip = await s.createTrip(input({ admin_display_name: "김대장" }), actor(u));
+    const rows = await ctx.sql<{ display_name: string; role: string }[]>`
+      select display_name, role from trip_members where trip_id = ${trip.id} and user_id = ${u}`;
+    expect(rows[0]?.display_name).toBe("김대장");
+    expect(rows[0]?.role).toBe("admin");
   });
   it("listTrips는 내가 joined인 trip만", async () => {
     const u1 = await mkUser(ctx.sql);

@@ -57,7 +57,8 @@ src/modules/usage-imports/
 - **`redactSensitive(text)` 순수 함수**를 프롬프트 조립 전에 적용: 카드번호(4-4-4-4, `-`/` `/`.` 구분·연속 12자리+ 숫자/마스킹 런은 fail-closed 마스킹)·카드 끝자리 표기(`카드(1234)`·`끝자리 1234`·`*1234`)·전화번호(모바일·`+82`·유선)·이메일·이름(마스킹 `홍*동님`·비마스킹 `홍길동님`)·비거래 금액(누적/잔액/한도/가용 — 파싱 불필요·금액 오독 위험) 치환. 상호명·거래 금액(콤마 동반)·일시는 보존(파싱에 필요). 유닛 테스트로 금지 패턴이 프롬프트에 실리지 않음을 검증. blocklist의 원리적 한계는 disclosure 동의 계약+FE 확인 플로우가 보완.
 - **원문 비로깅**: 컨트롤러·어댑터 어디서도 `text`/프롬프트 원문을 로그에 남기지 않는다(onError는 에러 객체만).
 - 전송처는 Anthropic API 단일(30일 보존 정책, 학습 미사용).
-- **prod 활성화 게이트**: FE의 사용자 고지 UI("파싱 시 텍스트가 외부 LLM으로 전송됨")가 배포되기 전에는 prod `deploy/.env`에 `ANTHROPIC_API_KEY`를 봉인하지 않는다(= 라우트 503 유지). 키 봉인이 곧 기능 활성 스위치이므로 이 게이트가 기술적으로 강제됨.
+- **prod 활성화 게이트**: FE의 사용자 고지 UI("파싱 시 텍스트가 외부 LLM으로 전송됨")가 배포되기 전에는 prod에서 파싱 엔진을 활성(env 봉인)하지 않는다(= 라우트 503 유지). 엔진 활성 봉인이 곧 기능 스위치이므로 이 게이트가 기술적으로 강제됨.
+- **⚠️ P-1 블로커(PB-1) 전제**: `disclosure_accepted`는 **검증만 하고 서버측에 기록하지 않는다**. 프로덕션 활성화는 `docs/production-blockers.md` PB-1(서버측 동의 캡처)의 해소를 전제로 한다 — 최소 `llm_disclosure` 동의 영속 기록이 있어야 켠다.
 
 ## LLM 어댑터
 
@@ -93,6 +94,26 @@ owner 결정으로 프로덕션 파서 엔진을 **Codex CLI(ChatGPT 구독, 비
 - **테넌트 공정성 한계(수용)**: 단일 슬롯이라 한 유저의 파싱(≤60s, 통상 ~8s)이 그 파드의 다른 파싱을 잠깐 막을 수 있음(Retry-After로 백오프). 대규모 동시 파싱이 필요한 스케일이면 claude 엔진 권장. 라우트는 기존 쓰기 rate-limit(60/min/IP)도 적용.
 - **잔여/운영 수용**: `/tmp`는 ephemeral → codex 토큰 리프레시분은 파드 재시작 시 소실, 다음 부팅이 sealed env에서 재생성(refresh_token 유효 동안 OK). 구독 토큰이 만료·회전 실패하면 502 → 재로그인·재봉인. codex 계정은 보조 계정 권장. `automountServiceAccountToken:false`는 **공유 차트 기본값으로 확인됨**(values.yaml).
 - **e2e 검증(실측)**: 파드 모사 컨테이너(`--read-only --tmpfs /tmp` -u 65532, auth=env)에서 env→materialize→실 codex 파싱까지 정확한 초안 반환 확인.
+
+### 런북: codex 토큰 만료 → 재로그인·재배포 (owner)
+
+codex 구독 토큰이 만료되거나 refresh가 실패해 파싱이 502가 지속되면(로그 `usage parse failed`), auth.json을 재발급해 재봉인한다. seed env가 SSOT이므로 **파드가 아니라 봉인 소스를 갱신**한다.
+
+```sh
+# 1) 로컬(owner 머신)에서 재로그인 — ~/.codex/auth.json을 새 토큰으로 갱신(브라우저 OAuth)
+codex login                      # 만료 꼬임 시 codex logout 후 codex login
+codex login status               # "Logged in using ChatGPT" 확인
+
+# 2) 새 auth.json 원문을 봉인 소스에 반영(값은 셸/에디터로만 — 채팅·로그 금지)
+#    .env에 USAGE_PARSER_CODEX_AUTH=<~/.codex/auth.json 1줄> 갱신 후:
+bun run secret:seal              # deploy/…sealed.yaml 재생성
+
+# 3) sealed 커밋 → homelab bump-poll이 반영 → 파드 롤(재시작 시 /tmp emptyDir 비고 새 seed로 재materialize)
+```
+
+- **주의**: `/tmp`는 ephemeral이라 파드 재시작만으로는 낡은 토큰이 되살아나지 않는다(재시작 시 새 seed에서 씀). 문제는 **봉인된 seed 자체가 만료**된 경우이므로 반드시 (2)의 재봉인이 필요하다.
+- **단일 replica·no-overlap 롤아웃**(아래) 하에서는 롤 도중 토큰 경쟁이 없다. 재봉인 후 새 파드가 새 토큰으로 뜬다.
+- refresh token rotation으로 seed가 조기 무효화되면 같은 절차를 반복(빈도가 잦으면 claude 엔진 전환 검토).
 - 배포(owner): 이미지에 codex musl 바이너리 설치(Dockerfile), 파드에 `CODEX_HOME`(auth.json secret + writable emptyDir)·writable `/tmp` 마운트.
 
 ## config / graceful off (라우트 상시 등록 + 503)
