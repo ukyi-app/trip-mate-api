@@ -29,7 +29,13 @@ function appFor(userId: string, email = "a@example.com") {
   const resolver: SessionResolver = async () => ({ user: { id: userId } });
   const memberLookup = (tripId: string, uid: string) =>
     new DrizzleMemberRepo(ctx.db).findMembership(tripId, uid);
-  registerTripRoutes(app, { tripsService, resolver, emailOf: async () => email, memberLookup });
+  registerTripRoutes(app, {
+    tripsService,
+    resolver,
+    emailOf: async () => email,
+    nameOf: async () => "테스터",
+    memberLookup,
+  });
   return app;
 }
 const body = () => ({

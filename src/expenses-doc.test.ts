@@ -10,6 +10,7 @@ function docApp() {
     tripDefaults: {} as never,
     resolver: async () => null,
     emailOf: async () => "",
+    nameOf: async () => "",
     memberLookup: async () => null,
     idempotencyStore: null,
     webOrigins: ["http://localhost:5173"],

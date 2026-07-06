@@ -90,6 +90,11 @@ const emailOf = async (userId: string): Promise<string> => {
   const rows = await core.db.select({ email: user.email }).from(user).where(eq(user.id, userId));
   return rows[0]?.email ?? "";
 };
+// Google 계정 이름(auth-schema user.name, notNull) — trip 어드민 표시 이름 미입력 시 폴백(§6.1).
+const nameOf = async (userId: string): Promise<string> => {
+  const rows = await core.db.select({ name: user.name }).from(user).where(eq(user.id, userId));
+  return rows[0]?.name ?? "";
+};
 // FX provider: 키 있을 때만(없으면 identity/manual만). 캐시·trip_default는 항상.
 const fxProviders = [
   ...(core.config.OXR_APP_ID ? [new OxrProvider(core.config.OXR_APP_ID)] : []),
@@ -150,6 +155,7 @@ const v1 = buildV1App({
   tripDefaults,
   resolver: authResolver(auth),
   emailOf,
+  nameOf,
   memberLookup: (t, u) => memberRepo.findMembership(t, u),
   idempotencyStore: { db: core.db, ttlSeconds: 86_400 }, // DB-durable(§5) — Redis는 auth·FX캐시 전용
   webOrigins: core.config.WEB_ORIGINS,

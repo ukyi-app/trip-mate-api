@@ -16,6 +16,7 @@ function rootWithV1() {
     tripDefaults: {} as never,
     resolver: async () => null, // 세션 없음 → requireAuth ForbiddenError(403)
     emailOf: async () => "",
+    nameOf: async () => "",
     memberLookup: async () => null,
     idempotencyStore: null,
     webOrigins: ["http://localhost:5173"],

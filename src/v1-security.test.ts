@@ -29,6 +29,7 @@ function v1For(userId: string) {
     tripDefaults: {} as never,
     resolver,
     emailOf: async () => "a@example.com",
+    nameOf: async () => "테스터",
     memberLookup: (t, u) => new DrizzleMemberRepo(ctx.db).findMembership(t, u),
     idempotencyStore: null,
     webOrigins: [ORIGIN],

@@ -11,6 +11,7 @@ const v1 = buildV1App({
   tripDefaults: {} as never,
   resolver: async () => null,
   emailOf: async () => "",
+  nameOf: async () => "",
   memberLookup: async () => null,
   idempotencyStore: null,
   webOrigins: ["http://localhost:5173"], // 정적 — env 불요

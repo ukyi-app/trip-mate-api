@@ -142,8 +142,7 @@
           "destination_countries",
           "timezone",
           "primary_local_currency",
-          "settlement_currency",
-          "admin_display_name"
+          "settlement_currency"
         ]
       },
       "UpdateTrip": {
