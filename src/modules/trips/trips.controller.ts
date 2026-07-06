@@ -18,6 +18,7 @@ interface Deps {
   tripsService: TripsService<Record<string, unknown>>;
   resolver: SessionResolver;
   emailOf: (userId: string) => Promise<string>;
+  nameOf: (userId: string) => Promise<string>; // Google 계정 이름(admin_display_name 폴백)
   memberLookup: MembershipLookup;
 }
 
@@ -44,9 +45,11 @@ export function registerTripRoutes(app: OpenAPIHono, deps: Deps): void {
     }),
     async (c) => {
       const user = c.get("user");
+      const [email, name] = await Promise.all([deps.emailOf(user.id), deps.nameOf(user.id)]);
       const trip = await deps.tripsService.createTrip(c.req.valid("json"), {
         id: user.id,
-        email: await deps.emailOf(user.id),
+        email,
+        name,
       });
       return c.json(trip, 200);
     },

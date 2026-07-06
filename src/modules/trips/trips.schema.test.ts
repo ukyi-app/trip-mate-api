@@ -39,19 +39,19 @@ describe("trips DTO", () => {
       false,
     ); // bogus IANA
   });
-  it("admin_display_name 필수(§6.1)·1..60자·공백 트림", () => {
+  it("admin_display_name 선택(§6.1, 미입력 시 서비스가 Google 이름 폴백)·있으면 1..60자·공백 트림", () => {
     const { admin_display_name: _omit, ...noName } = validInput();
-    expect(createTripSchema.safeParse(noName).success).toBe(false); // 누락 → 불가
+    expect(createTripSchema.safeParse(noName).success).toBe(true); // 미입력 허용(폴백)
+    // 있으면 검증: 빈값·공백-only·초과 거부
     expect(createTripSchema.safeParse({ ...validInput(), admin_display_name: "" }).success).toBe(
+      false,
+    );
+    expect(createTripSchema.safeParse({ ...validInput(), admin_display_name: "   " }).success).toBe(
       false,
     );
     expect(
       createTripSchema.safeParse({ ...validInput(), admin_display_name: "가".repeat(61) }).success,
     ).toBe(false);
-    // 공백-only → 트림 후 빈값 → 거부(빈 이름 멤버십 방지)
-    expect(createTripSchema.safeParse({ ...validInput(), admin_display_name: "   " }).success).toBe(
-      false,
-    );
     // 앞뒤 공백 트림 후 저장
     const p = createTripSchema.parse({ ...validInput(), admin_display_name: "  김대장  " });
     expect(p.admin_display_name).toBe("김대장");

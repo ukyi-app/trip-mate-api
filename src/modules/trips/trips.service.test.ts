@@ -31,7 +31,7 @@ const input = (over: Record<string, unknown> = {}) => ({
   admin_display_name: "여행대장",
   ...over,
 });
-const actor = (id: string, email = "a@example.com") => ({ id, email });
+const actor = (id: string, email = "a@example.com", name = "Google이름") => ({ id, email, name });
 
 describe("TripsService", () => {
   it("createTrip → trip + 생성자 어드민 멤버십(joined)", async () => {
@@ -49,6 +49,15 @@ describe("TripsService", () => {
       select display_name, role from trip_members where trip_id = ${trip.id} and user_id = ${u}`;
     expect(rows[0]?.display_name).toBe("김대장");
     expect(rows[0]?.role).toBe("admin");
+  });
+  it("admin_display_name 미입력 → Google 계정 이름(actor.name) 폴백", async () => {
+    const u = await mkUser(ctx.sql);
+    const s = svc();
+    const { admin_display_name: _omit, ...noName } = input();
+    const trip = await s.createTrip(noName, actor(u, "x@y.com", "심우기"));
+    const rows = await ctx.sql<{ display_name: string }[]>`
+      select display_name from trip_members where trip_id = ${trip.id} and user_id = ${u}`;
+    expect(rows[0]?.display_name).toBe("심우기");
   });
   it("listTrips는 내가 joined인 trip만", async () => {
     const u1 = await mkUser(ctx.sql);

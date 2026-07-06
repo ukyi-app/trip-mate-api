@@ -43,9 +43,9 @@ const tripFields = z.object({
 });
 
 // 생성 입력에만 있는 어드민 표시 이름(§6.1) — trips 컬럼 아님(생성자 멤버십 display_name으로). 초대와 동일 규약.
-// tripFields에 넣지 않음(updateTrip으로 새어 통화처럼 오인 수정되는 것 방지).
+// 선택: 미입력 시 서비스가 Google 계정 이름(actor.name)으로 폴백. tripFields에 넣지 않음(updateTrip 오염 방지).
 export const createTripSchema = tripFields
-  .extend({ admin_display_name: displayName })
+  .extend({ admin_display_name: displayName.optional() })
   .refine((d) => d.start_date <= d.end_date, {
     message: "start_date must be <= end_date",
     path: ["end_date"],

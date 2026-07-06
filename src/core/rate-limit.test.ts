@@ -83,6 +83,7 @@ describe("buildV1App rate-limit 배선", () => {
       tripDefaults: {} as never,
       resolver: async () => null,
       emailOf: async () => "",
+      nameOf: async () => "",
       memberLookup: async () => null,
       idempotencyStore: null,
       webOrigins: ["https://trip-mate.ukyi.app"],

@@ -8,6 +8,7 @@ import type { CreateTrip, DeleteTripResult, TripResponse, UpdateTrip } from "./t
 export interface TripActor {
   id: string;
   email: string;
+  name: string; // Google 계정 이름(§42.3) — admin_display_name 미입력 시 표시 이름 폴백(§6.1)
 }
 
 // drizzle은 postgres 에러를 감싸므로 SQLSTATE는 .code 또는 .cause.code. 23503(FK 미지 통화)·23514(check 역순날짜)는 입력 오류.
@@ -31,16 +32,12 @@ export class TripsService<T extends Record<string, unknown>> {
    *  admin_display_name(§6.1)은 trips 컬럼이 아니라 생성자 멤버십 display_name으로 분리 전달(하드코딩 'Me' 대체). */
   async createTrip(input: CreateTrip, actor: TripActor): Promise<TripResponse> {
     const { admin_display_name, ...cols } = input;
+    // 미입력 시 Google 계정 이름 폴백(§6.1). 폴백값도 트림·60자 캡(display_name 규약 일관, notNull 컬럼).
+    const displayName = admin_display_name ?? (actor.name.trim().slice(0, 60) || "여행 멤버");
     try {
       return await this.db.transaction(async (tx) => {
         const trip = await this.repo.create(cols, actor.id, tx);
-        await this.members.ensureCreatorMembership(
-          trip.id,
-          actor.id,
-          admin_display_name,
-          actor.email,
-          tx,
-        );
+        await this.members.ensureCreatorMembership(trip.id, actor.id, displayName, actor.email, tx);
         return trip;
       });
     } catch (e) {

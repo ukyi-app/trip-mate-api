@@ -29,6 +29,7 @@ export interface V1Deps {
   tripDefaults: TripDefaultsPort;
   resolver: SessionResolver;
   emailOf: (userId: string) => Promise<string>;
+  nameOf: (userId: string) => Promise<string>; // Google 계정 이름(trip 어드민 표시 이름 폴백)
   memberLookup: MembershipLookup;
   idempotencyStore: IdempotencyStore | null;
   webOrigins: string[];
@@ -59,6 +60,7 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
     tripsService: deps.tripsService,
     resolver: deps.resolver,
     emailOf: deps.emailOf,
+    nameOf: deps.nameOf,
     memberLookup: deps.memberLookup,
   });
   registerMemberRoutes(v1, {
