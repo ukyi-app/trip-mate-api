@@ -65,8 +65,13 @@ export class UnavailableError extends AppError {
 // oxlint-disable-next-line typescript/no-explicit-any
 export function registerErrorFilter(app: Hono<any, any, any>): void {
   app.onError((err, c) => {
-    const problemJson = { "content-type": "application/problem+json" }; // RFC 9457 미디어타입(finding #3 pass2)
+    const problemJson: Record<string, string> = {
+      "content-type": "application/problem+json", // RFC 9457 미디어타입(finding #3 pass2)
+    };
     if (err instanceof AppError) {
+      // meta.retryAfterSeconds → Retry-After 헤더(백프레셔 — busy 503 등이 클라 백오프 유도)
+      const retry = (err.meta as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds;
+      if (typeof retry === "number" && retry > 0) problemJson["Retry-After"] = String(retry);
       return c.json(
         {
           type: "about:blank",
