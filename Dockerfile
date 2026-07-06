@@ -8,6 +8,16 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
+# 사용내역 파싱 codex 엔진(선택, USAGE_PARSER_ENGINE=codex) — musl 릴리스 바이너리 직설치.
+# 런타임엔 CODEX_HOME(auth.json secret + writable) 마운트 필요(차트/values, 설계 §엔진 선택).
+ARG CODEX_VERSION=0.142.3
+RUN wget -qO /tmp/codex.tar.gz "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-aarch64-unknown-linux-musl.tar.gz" \
+  && tar -xzf /tmp/codex.tar.gz -C /tmp \
+  && mv /tmp/codex-aarch64-unknown-linux-musl /usr/local/bin/codex \
+  && chmod 755 /usr/local/bin/codex \
+  && rm -f /tmp/codex.tar.gz \
+  && codex --version
+
 COPY . .
 
 ENV NODE_ENV=production PORT=8080
