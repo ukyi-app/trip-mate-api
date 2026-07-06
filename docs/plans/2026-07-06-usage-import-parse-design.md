@@ -75,7 +75,24 @@ owner 결정으로 프로덕션 파서 엔진을 **Codex CLI(ChatGPT 구독, 비
 - 호출: `codex exec --ephemeral --skip-git-repo-check --ignore-user-config --color never -s read-only -C <빈 tmp dir> --output-schema <schema> -o <out> -` (프롬프트 stdin). **실측(0.142.3)**: 샘플 3건(취소 페어 포함) 7.7s — 취소 페어링·KST→UTC·category 정확.
 - **OpenAI strict 스키마 차이**: 모든 키 required + 선택 필드는 null 유니온 → 어댑터가 null 키 제거(`normalizeDrafts`) 후 공용 `validateDrafts` 재검증. 프롬프트·redaction·검증은 claude 어댑터와 공유.
 - 타임아웃 60s(spawn timeout), 실패는 exit code만 담아 `UpstreamError`(stderr에 원문 조각 가능성 → 비로깅 규칙 준수).
-- **수용 리스크(owner 승인)**: ① 구독 OAuth(auth.json)를 파드에 반입 — 토큰 갱신 실패 시 502, 재로그인·재봉인 필요 ② 개인 구독의 서버 자동화 사용은 약관 회색지대 ③ **프롬프트 인젝션 표면 확대** — codex는 셸 도구를 가진 에이전트. **실측(0.142.3): read-only 샌드박스는 cwd 밖 파일 읽기를 허용**(/etc/hosts 읽기 성공) → SMS 인젝션으로 파드 내 *파일* 노출 시도 가능. 완화(critical 리뷰 반영): **spawn env allowlist**(`buildCodexEnv` — PATH·HOME·CODEX_HOME 등만, DB URL·auth 시크릿 등 앱 env 비상속) + `-c shell_environment_policy.inherit=core`(도구 서브프로세스 이중 차단) + 빈 tmp cwd·도구 사용 금지 프롬프트·output-schema 강제·redaction. **배포 격리 요구(owner)**: 파드에 파일 형태 시크릿 마운트 금지(앱 시크릿은 env로만 — env는 scrub됨), `automountServiceAccountToken: false`, codex 계정은 유출 시 재로그인으로 무효화 가능한 보조 계정 권장. 잔여 수용: codex 자신의 auth.json은 파일 읽기로 노출 가능(유출 시 재로그인 무효화) ④ 지연 ~8s(API 1–3s 대비) ⑤ **동시 실행 상한 2**(어댑터 세마포어) — 초과분 즉시 503 "parser busy"(60s 프로세스 × 무제한 스폰의 파드(256Mi) 고갈 방지).
+- **수용 리스크(owner 승인)**: ① 구독 OAuth(auth.json)를 파드에 반입 — 토큰 갱신 실패 시 502, 재로그인·재봉인 필요 ② 개인 구독의 서버 자동화 사용은 약관 회색지대 ③ **프롬프트 인젝션 표면 — 배포 컨테이너에서 구조적 소거(실측)**. codex는 셸 도구를 가진 에이전트지만, **배포 이미지(Alpine musl)에 `bubblewrap`(bwrap)이 없다 → Linux read-only 샌드박스가 어떤 셸 명령도 실행하지 못하고 fail-closed**(컨테이너 실측: `no system bwrap was found on PATH`로 명령 시작 자체 실패 → 밖 파일·cwd 파일·auth.json 읽기 전부 불가). **파싱은 셸 도구 불필요** → 동일 컨테이너에서 정상 동작 실측(초안 정확). 즉 "파일 읽기 인젝션" 벡터가 파드에서 원천 차단된다(프롬프트 문구가 아니라 플랫폼 강제). ⚠️ **이미지에 bwrap을 설치하지 말 것**(설치 시 셸 도구가 활성화됨 — 의도된 통제). 이 불변식은 **부팅에서 강제**(`assertCodexToolsDisabled` — PATH에 bwrap 있으면 fail-closed로 부팅 중단)돼 우연이 아닌 통제가 된다. macOS(seatbelt)는 반대로 읽기 허용하므로 로컬 개발과 파드 동작이 다름을 유의. 코드 계층 완화도 유지(이중): **spawn env allowlist**(`buildCodexEnv` — 앱 시크릿 env 비상속) + `-c shell_environment_policy.inherit=core` + 빈 tmp cwd + 도구 금지 프롬프트 + output-schema + redaction.
+④ 지연 ~8s(API 1–3s 대비) ⑤ **동시 실행 상한 2**(어댑터 세마포어) — 초과분 즉시 503 "parser busy"(60s 프로세스 × 무제한 스폰의 파드(256Mi) 고갈 방지).
+
+## 배포 (owner) — 검증 완료, 차트 변경 불요
+
+플랫폼(공유 차트) 제약: `.app-config.yml`은 고정 스키마(`additionalProperties:false`)라 임의 볼륨·파일 시크릿 마운트를 선언할 수 없고, 시크릿은 **envFrom(env 키)로만** 주입된다. 이에 맞춘 배선:
+
+- **codex 바이너리**: Dockerfile에서 musl 릴리스 직설치(이미지 read-only·non-root 65532 실측). bwrap 미설치 = 셸 도구 비활성 통제.
+- **CODEX_HOME(auth.json)**: 파일 시크릿 볼륨이 없으므로 **auth.json 원문을 sealed env `USAGE_PARSER_CODEX_AUTH`로 받아, 부팅 시 앱이 writable dir(`/tmp`)에 0600으로 seed**(`seedCodexHome` — 기존 파일 있으면 보존해 제자리 refresh분 미덮어쓰기) 후 `process.env.CODEX_HOME` 지정. writable `/tmp`는 **공유 차트가 이미 emptyDir로 마운트**(deployment.yaml) → 추가 볼륨 불요. materialize된 파일은 codex만 읽고(이미지에 bwrap 없어 셸 파일읽기 불가), `USAGE_PARSER_CODEX_AUTH` env는 allowlist에서 제외돼 codex 서브프로세스에 비상속.
+- **활성화 절차**: `.env`에 `USAGE_PARSER_ENGINE=codex` + `USAGE_PARSER_CODEX_AUTH=<auth.json 1줄>` 넣고 `bun run secret:seal` → sealed 커밋 → homelab bump-poll. (FE 고지 UI 배포 후.)
+- **동시성·토큰 리프레시**: **동시 실행 1(직렬화, in-process)** — 2번째 동시 요청은 즉시 503 + **Retry-After: 5**(백프레셔, FE 백오프). cwd(-C)는 auth-free temp이나 **CODEX_HOME은 seed dir 그대로 사용**해 codex가 제자리 토큰 리프레시를 영속(refresh token rotation 시 seed 무효화 방지). 직렬화가 공유 auth.json 동시 write torn을 막는다.
+- **⚠️ codex 엔진 = 단일 replica 운영 불변식(owner, 강제 필요)**: in-process 직렬화(MAX_CONCURRENT 1)는 **한 파드 안에서만** 유효하다. 하나의 개인 구독 OAuth를 여러 파드가 각자 seed에서 리프레시하면 rotation 시 크로스-파드로 seed가 무효화될 수 있다(분산 락으로도 근본 해결 불가 — 단일 자격증명이라 공유 토큰 스토리지가 필요). 앱 레포 코드로는 강제 불가(앱 전체 가용성에 영향) → **배포 시 owner가 강제**:
+  - `.app-config.yml` `replicas: 1` (codex 엔진 활성 시 — 앱 전체가 단일 replica가 되는 가용성 트레이드오프 수용).
+  - **롤아웃 no-overlap**: 롤링 배포의 파드 겹침 구간에도 두 codex가 같은 seed를 리프레시 → `Recreate` 전략 또는 `maxSurge:0`로 겹침 제거(차트 strategy override).
+  - 개인 구독은 애초에 수평 확장 불가(계정 rate limit·토큰 rotation 공유). **수평 확장·고가용이 필요하면 claude 엔진(API 키)이 정답**(무상태·멀티-replica 안전). 이 트레이드오프가 codex(구독 절약) vs claude(확장·격리)의 본질 — 스케일 요구 시 엔진 전환이 올바른 선택.
+- **테넌트 공정성 한계(수용)**: 단일 슬롯이라 한 유저의 파싱(≤60s, 통상 ~8s)이 그 파드의 다른 파싱을 잠깐 막을 수 있음(Retry-After로 백오프). 대규모 동시 파싱이 필요한 스케일이면 claude 엔진 권장. 라우트는 기존 쓰기 rate-limit(60/min/IP)도 적용.
+- **잔여/운영 수용**: `/tmp`는 ephemeral → codex 토큰 리프레시분은 파드 재시작 시 소실, 다음 부팅이 sealed env에서 재생성(refresh_token 유효 동안 OK). 구독 토큰이 만료·회전 실패하면 502 → 재로그인·재봉인. codex 계정은 보조 계정 권장. `automountServiceAccountToken:false`는 **공유 차트 기본값으로 확인됨**(values.yaml).
+- **e2e 검증(실측)**: 파드 모사 컨테이너(`--read-only --tmpfs /tmp` -u 65532, auth=env)에서 env→materialize→실 codex 파싱까지 정확한 초안 반환 확인.
 - 배포(owner): 이미지에 codex musl 바이너리 설치(Dockerfile), 파드에 `CODEX_HOME`(auth.json secret + writable emptyDir)·writable `/tmp` 마운트.
 
 ## config / graceful off (라우트 상시 등록 + 503)

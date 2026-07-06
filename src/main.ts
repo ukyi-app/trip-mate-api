@@ -29,8 +29,16 @@ import { createMailer } from "./modules/notifications/mailer.resend.ts";
 import { FilesClient } from "./modules/files/files.client.ts";
 import { DrizzleReceiptRepo } from "./modules/files/receipts.repo.ts";
 import { ReceiptsService } from "./modules/files/receipts.service.ts";
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ClaudeUsageParser } from "./modules/usage-imports/usage-parser.claude.ts";
-import { CodexUsageParser } from "./modules/usage-imports/usage-parser.codex.ts";
+import {
+  CodexUsageParser,
+  assertCodexToolsDisabled,
+  codexAuthAvailable,
+  seedCodexHome,
+} from "./modules/usage-imports/usage-parser.codex.ts";
 
 const core = createCore();
 // boot self-migrate(homelab 계약) — 서빙 전 멱등 마이그레이션. 직결 URL, 실패 시 부팅 중단(fail-closed).
@@ -111,14 +119,29 @@ const receipts =
     : undefined;
 // 사용내역 파싱(LLM) — 엔진 선택(설계 §엔진 선택). codex=구독 CLI, 그 외 키 있으면 Claude, 없으면 503.
 const onUsageParseError = (e: unknown) => core.logger.warn({ err: e }, "usage parse failed");
-const usageParser =
-  core.config.USAGE_PARSER_ENGINE === "codex"
-    ? new CodexUsageParser({ onError: onUsageParseError })
-    : core.config.ANTHROPIC_API_KEY
-      ? new ClaudeUsageParser(core.config.ANTHROPIC_API_KEY, { onError: onUsageParseError })
-      : undefined;
-if (core.config.USAGE_PARSER_ENGINE === "claude" && !core.config.ANTHROPIC_API_KEY)
+let usageParser: CodexUsageParser | ClaudeUsageParser | undefined;
+if (core.config.USAGE_PARSER_ENGINE === "codex") {
+  // 안전 불변식 강제: 이미지에 bwrap 있으면 codex 셸 도구가 재활성 → 인젝션 파일읽기 위험. fail-closed.
+  assertCodexToolsDisabled();
+  if (codexAuthAvailable(core.config.USAGE_PARSER_CODEX_AUTH)) {
+    if (core.config.USAGE_PARSER_CODEX_AUTH) {
+      // 파일 시크릿 볼륨 부재 → auth.json을 writable dir(/tmp emptyDir)에 부팅 시 materialize 후 CODEX_HOME 지정.
+      const codexHome = join(tmpdir(), "trip-mate-codex-home");
+      mkdirSync(codexHome, { recursive: true, mode: 0o700 });
+      seedCodexHome(core.config.USAGE_PARSER_CODEX_AUTH, codexHome); // 기존 refresh분 보존(덮어쓰기 방지)
+      process.env.CODEX_HOME = codexHome; // codex가 이 seed dir에서 제자리 토큰 리프레시 — auth env는 비상속
+    } // else: 로컬 ~/.codex 폴백(codex 기본 CODEX_HOME)
+    usageParser = new CodexUsageParser({ onError: onUsageParseError });
+  } else {
+    core.logger.warn("USAGE_PARSER_ENGINE=codex이지만 인증 없음(env·~/.codex 모두) — 파싱 503");
+  }
+} else if (core.config.ANTHROPIC_API_KEY) {
+  usageParser = new ClaudeUsageParser(core.config.ANTHROPIC_API_KEY, {
+    onError: onUsageParseError,
+  });
+} else if (core.config.USAGE_PARSER_ENGINE === "claude") {
   core.logger.warn("USAGE_PARSER_ENGINE=claude이지만 ANTHROPIC_API_KEY 없음 — 파싱 503");
+}
 const v1 = buildV1App({
   tripsService,
   membersService,

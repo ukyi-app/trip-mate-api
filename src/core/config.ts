@@ -42,6 +42,8 @@ export const env = createEnv({
     // "codex" = Codex CLI(구독, 파드에 codex 바이너리+CODEX_HOME 필요) / "claude"·미설정 = ANTHROPIC_API_KEY 있으면 Claude API.
     USAGE_PARSER_ENGINE: z.enum(["claude", "codex"]).optional(),
     ANTHROPIC_API_KEY: z.string().optional(),
+    // codex 엔진 인증(auth.json 원문). 플랫폼이 파일 시크릿 볼륨을 안 줘서 env로 받아 부팅 시 파일로 materialize.
+    USAGE_PARSER_CODEX_AUTH: z.string().optional(),
 
     USE_SECURE_COOKIES: z
       .enum(["true", "false"])
