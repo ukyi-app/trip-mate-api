@@ -19,6 +19,8 @@ import type { Mailer } from "./modules/notifications/mailer.port.ts";
 import type { ReceiptsPort } from "./modules/files/receipts.service.ts";
 import { registerReceiptRoutes } from "./modules/files/receipts.controller.ts";
 import type { UsageParserPort } from "./modules/usage-imports/usage-parser.port.ts";
+import type { ParserQuota } from "./modules/usage-imports/parser-quota.ts";
+import type { UsageMetrics } from "./core/metrics.ts";
 import {
   registerUsageImportRoutes,
   type TripContext,
@@ -41,6 +43,8 @@ export interface V1Deps {
   receipts?: ReceiptsPort; // 영수증 프록시(files 서버, 없으면 라우트 미등록)
   usageParser?: UsageParserPort; // 사용내역 파싱 LLM(없으면 parse 라우트 503 — 라우트는 항상 등록)
   tripContext?: TripContext; // 사용내역 날짜 보정용 여행 timezone·기간 조회(없으면 KST 폴백)
+  usageQuota?: ParserQuota; // parse 전용 per-user·per-trip 쿼터(check+refund)
+  usageMetrics?: UsageMetrics; // 파싱 메트릭 registry
 }
 
 /** /v1 라우트·security·미들웨어(CORS→CSRF→라우트)를 등록한 OpenAPIHono 반환.
@@ -56,6 +60,7 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
       credentials: true,
       allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], // PUT=fx-defaults(finding #1 pass2)
       allowHeaders: ["Content-Type", "Idempotency-Key"], // Idempotency-Key preflight 허용(finding #5 pass1)
+      exposeHeaders: ["Retry-After"], // 429/503 백오프 값을 브라우저 클라가 읽을 수 있게(비-safelisted)
     }),
   );
   if (deps.rateLimit) v1.use("*", deps.rateLimit); // 라우트 전 rate limit(csrf보다 앞 — 거부 요청도 카운트)
@@ -98,6 +103,11 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
     resolver: deps.resolver,
     memberLookup: deps.memberLookup,
     ...(deps.tripContext ? { tripContext: deps.tripContext } : {}), // 여행 timezone·기간 날짜 보정
+    // 쿼터는 parser 있을 때만 — 미설정(503) 상태에서 쿼터를 소모하면 복구 후에도 429로 막힐 수 있음(리뷰).
+    ...(deps.usageParser && deps.usageQuota
+      ? { quotaCheck: deps.usageQuota.check, quotaRefund: deps.usageQuota.refund }
+      : {}),
+    ...(deps.usageMetrics ? { metrics: deps.usageMetrics } : {}),
     ...(deps.usageParser ? { parser: deps.usageParser } : {}),
   });
   // 계약 자체 서빙(homelab self-host) — 앱이 OpenAPI 스펙을 /v1/openapi.json 으로 노출.

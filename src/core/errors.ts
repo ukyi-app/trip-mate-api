@@ -47,6 +47,12 @@ export class SettlementInvariantError extends AppError {
     super("SettlementInvariantError", 422, message, meta);
   }
 }
+export class TooManyRequestsError extends AppError {
+  // 쿼터 초과 → 429. meta.retryAfterSeconds가 필터에서 Retry-After 헤더로.
+  constructor(message?: string, meta?: unknown) {
+    super("TooManyRequestsError", 429, message, meta);
+  }
+}
 export class UpstreamError extends AppError {
   // 외부 의존(LLM 등) 호출 실패·비정형 응답 → 502. 상세는 meta로(원문 비노출).
   constructor(message?: string, meta?: unknown) {

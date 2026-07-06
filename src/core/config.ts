@@ -49,6 +49,12 @@ export const env = createEnv({
       .enum(["true", "false"])
       .default("true")
       .transform((v) => v === "true"), // prod=true, 로컬 http 개발만 false
+    // 메트릭(사용내역 파싱) — 공개 API 호스트에 노출하지 않고 별도 내부 포트로만. 기본 off(공개 노출 방지).
+    METRICS_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+    METRICS_PORT: z.coerce.number().int().positive().default(9090), // 차트 ports.metrics=9090(내부 scrape)
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

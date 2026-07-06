@@ -25,6 +25,8 @@ import { buildV1App } from "./app.ts";
 import { sweepExpiredIdempotency } from "./core/idempotency.ts";
 import { runMigrations } from "./db/migrate.ts";
 import { rateLimitWrites } from "./core/rate-limit.ts";
+import { createUsageMetrics } from "./core/metrics.ts";
+import { createParserQuota } from "./modules/usage-imports/parser-quota.ts";
 import { createMailer } from "./modules/notifications/mailer.resend.ts";
 import { FilesClient } from "./modules/files/files.client.ts";
 import { DrizzleReceiptRepo } from "./modules/files/receipts.repo.ts";
@@ -153,6 +155,14 @@ if (core.config.USAGE_PARSER_ENGINE === "codex") {
 } else if (core.config.USAGE_PARSER_ENGINE === "claude") {
   core.logger.warn("USAGE_PARSER_ENGINE=claude이지만 ANTHROPIC_API_KEY 없음 — 파싱 503");
 }
+// 사용내역 파싱 메트릭·쿼터(parse 전용, LLM 비용·남용 방어). user 20/시간·trip 60/일(튜너블).
+const usageMetrics = createUsageMetrics();
+const usageQuota = createParserQuota(redis, {
+  userMax: 20,
+  userWindowSec: 3600,
+  tripMax: 60,
+  tripWindowSec: 86_400,
+});
 const v1 = buildV1App({
   tripsService,
   membersService,
@@ -170,11 +180,34 @@ const v1 = buildV1App({
   ...(receipts ? { receipts } : {}), // 영수증 프록시(files 서버)
   ...(usageParser ? { usageParser } : {}), // 사용내역 파싱(LLM)
   tripContext, // 사용내역 날짜 보정(여행 timezone·기간)
+  usageQuota, // parse 전용 쿼터(check+refund)
+  usageMetrics, // 파싱 메트릭
 });
 app.route("/", v1); // v1 라우트는 /v1/... (basePath)
 
 app.get("/health", (c) => c.json({ status: "ok" })); // liveness(차트 probe)
 app.get("/ready", (c) => c.json({ status: "ready" })); // readiness(차트 probe) — boot migrate 후 서빙
+
+// Prometheus 메트릭 — **공개 API 호스트(app)에 노출하지 않고** 별도 내부 포트에서만(리뷰: 공개 노출 정보 누출 방지).
+// METRICS_ENABLED=true일 때만 기동, chart의 내부 metrics 포트(9090)로 scrape. 기본 off.
+if (core.config.METRICS_ENABLED) {
+  // @types/bun 미도입 — Bun.serve만 국소 ambient 선언(export default {port,fetch}는 글로벌 미참조).
+  const bun = (
+    globalThis as unknown as {
+      Bun: { serve(o: { port: number; fetch: (r: Request) => Response }): void };
+    }
+  ).Bun;
+  bun.serve({
+    port: core.config.METRICS_PORT,
+    fetch: (req) =>
+      new URL(req.url).pathname === "/metrics"
+        ? new Response(usageMetrics.render(), {
+            headers: { "content-type": "text/plain; version=0.0.4" },
+          })
+        : new Response("not found", { status: 404 }),
+  });
+  core.logger.info({ port: core.config.METRICS_PORT }, "metrics listener started");
+}
 
 // 만료 멱등 행 주기 정리(Redis EX 자동 eviction 대체). unref로 단독 프로세스 유지 안 함.
 setInterval(() => {
