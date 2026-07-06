@@ -6,6 +6,7 @@ import { MembersService } from "./members.service.ts";
 import { registerMemberRoutes } from "./members.controller.ts";
 import { registerErrorFilter } from "../../core/errors.ts";
 import type { SessionResolver } from "../../core/guards.ts";
+import type { Mailer, InviteEmail } from "../notifications/mailer.port.ts";
 
 let ctx: Ctx;
 beforeAll(async () => {
@@ -16,7 +17,7 @@ afterAll(async () => {
   await ctx.container.stop();
 });
 
-function appFor(userId: string, email: string) {
+function appFor(userId: string, email: string, mailer?: Mailer) {
   const app = createApp();
   registerErrorFilter(app);
   const service = new MembersService(new DrizzleMemberRepo(ctx.db), { ttlHours: 168 });
@@ -27,6 +28,7 @@ function appFor(userId: string, email: string) {
     resolver,
     emailOf: async () => email,
     memberLookup: lookup,
+    ...(mailer ? { mailer, inviteBaseUrl: "https://trip-mate.ukyi.app" } : {}),
   });
   return app;
 }
@@ -46,6 +48,42 @@ describe("members/invites 라우트", () => {
     expect([200, 201]).toContain(inv.status);
     const members = await app.request(`/trips/${trip}/members`);
     expect(((await members.json()) as unknown[]).length).toBeGreaterThanOrEqual(2);
+  });
+  it("초대 생성 시 mailer.sendInvite 호출(to·절대 URL)", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    await svc().ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
+    const calls: InviteEmail[] = [];
+    const mailer: Mailer = {
+      sendInvite: async (m) => {
+        calls.push(m);
+      },
+    };
+    const res = await appFor(admin, "admin@example.com", mailer).request(`/trips/${trip}/invites`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "g@example.com", display_name: "G" }),
+    });
+    expect([200, 201]).toContain(res.status);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.to).toBe("g@example.com");
+    expect(calls[0]!.inviteUrl).toMatch(/^https:\/\/trip-mate\.ukyi\.app\/invite\/.+/);
+  });
+  it("mailer 실패해도 초대는 성공(best-effort)", async () => {
+    const admin = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, admin);
+    await svc().ensureCreatorMembership(trip, admin, "Admin", "admin@example.com");
+    const mailer: Mailer = {
+      sendInvite: async () => {
+        throw new Error("resend down");
+      },
+    };
+    const res = await appFor(admin, "admin@example.com", mailer).request(`/trips/${trip}/invites`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "h@example.com", display_name: "H" }),
+    });
+    expect([200, 201]).toContain(res.status); // 발송 실패해도 초대는 생성됨
   });
   it("비-admin 초대 → 403", async () => {
     const admin = await mkUser(ctx.sql);

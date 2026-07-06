@@ -14,12 +14,15 @@ import {
   inviteRevokedSchema,
 } from "./members.schema.ts";
 import type { MembersService } from "./members.service.ts";
+import type { Mailer } from "../notifications/mailer.port.ts";
 
 interface Deps {
   service: MembersService;
   resolver: SessionResolver;
   emailOf: (userId: string) => Promise<string>;
   memberLookup: MembershipLookup;
+  mailer?: Mailer; // 있으면 초대 링크 best-effort 발송(없으면 skip)
+  inviteBaseUrl?: string; // 절대 초대 URL 베이스(FE origin)
 }
 const ok = <S extends z.ZodTypeAny>(schema: S) => ({
   200: { description: "ok", content: { "application/json": { schema } } },
@@ -54,6 +57,12 @@ export function registerMemberRoutes(app: OpenAPIHono, deps: Deps): void {
     async (c) => {
       const { email, display_name } = c.req.valid("json");
       const cmd = await deps.service.createInvite(c.req.valid("param").tripId, email, display_name);
+      // best-effort 발송 — 실패해도 초대는 성공(응답에 link 포함, 어댑터가 내부 로깅).
+      if (deps.mailer) {
+        void deps.mailer
+          .sendInvite({ to: email, inviteUrl: `${deps.inviteBaseUrl ?? ""}${cmd.link}` })
+          .catch(() => {});
+      }
       return c.json({ inviteId: cmd.inviteId, link: cmd.link }, 200);
     },
   );
