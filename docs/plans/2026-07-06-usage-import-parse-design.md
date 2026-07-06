@@ -67,6 +67,17 @@ src/modules/usage-imports/
 - 모델 출력 → `JSON.parse` → `validateDrafts`(zod) → 실패 시 `UpstreamError`. 어댑터는 `onError?.(e)` 로깅 후 rethrow(mailer 규약).
 - 모델 ID는 어댑터 상수(`claude-haiku-4-5`) — config 비대화 방지, 필요 시 후속에 env 승격.
 
+## 엔진 선택 — Codex CLI 기본 (owner 결정, 2026-07-06)
+
+owner 결정으로 프로덕션 파서 엔진을 **Codex CLI(ChatGPT 구독, 비대화형)**로 운용한다. Claude 어댑터는 코드에 유지(escape hatch — codex 인증 만료/약관 이슈 시 `USAGE_PARSER_ENGINE` 전환만으로 복귀).
+
+- `USAGE_PARSER_ENGINE: "claude" | "codex"` (optional): `codex` → `CodexUsageParser`. 미설정 → 기존 동작(ANTHROPIC_API_KEY 있으면 claude, 없으면 off/503).
+- 호출: `codex exec --ephemeral --skip-git-repo-check --ignore-user-config --color never -s read-only -C <빈 tmp dir> --output-schema <schema> -o <out> -` (프롬프트 stdin). **실측(0.142.3)**: 샘플 3건(취소 페어 포함) 7.7s — 취소 페어링·KST→UTC·category 정확.
+- **OpenAI strict 스키마 차이**: 모든 키 required + 선택 필드는 null 유니온 → 어댑터가 null 키 제거(`normalizeDrafts`) 후 공용 `validateDrafts` 재검증. 프롬프트·redaction·검증은 claude 어댑터와 공유.
+- 타임아웃 60s(spawn timeout), 실패는 exit code만 담아 `UpstreamError`(stderr에 원문 조각 가능성 → 비로깅 규칙 준수).
+- **수용 리스크(owner 승인)**: ① 구독 OAuth(auth.json)를 파드에 반입 — 토큰 갱신 실패 시 502, 재로그인·재봉인 필요 ② 개인 구독의 서버 자동화 사용은 약관 회색지대 ③ **프롬프트 인젝션 표면 확대** — codex는 셸 도구를 가진 에이전트. **실측(0.142.3): read-only 샌드박스는 cwd 밖 파일 읽기를 허용**(/etc/hosts 읽기 성공) → SMS 인젝션으로 파드 내 *파일* 노출 시도 가능. 완화(critical 리뷰 반영): **spawn env allowlist**(`buildCodexEnv` — PATH·HOME·CODEX_HOME 등만, DB URL·auth 시크릿 등 앱 env 비상속) + `-c shell_environment_policy.inherit=core`(도구 서브프로세스 이중 차단) + 빈 tmp cwd·도구 사용 금지 프롬프트·output-schema 강제·redaction. **배포 격리 요구(owner)**: 파드에 파일 형태 시크릿 마운트 금지(앱 시크릿은 env로만 — env는 scrub됨), `automountServiceAccountToken: false`, codex 계정은 유출 시 재로그인으로 무효화 가능한 보조 계정 권장. 잔여 수용: codex 자신의 auth.json은 파일 읽기로 노출 가능(유출 시 재로그인 무효화) ④ 지연 ~8s(API 1–3s 대비) ⑤ **동시 실행 상한 2**(어댑터 세마포어) — 초과분 즉시 503 "parser busy"(60s 프로세스 × 무제한 스폰의 파드(256Mi) 고갈 방지).
+- 배포(owner): 이미지에 codex musl 바이너리 설치(Dockerfile), 파드에 `CODEX_HOME`(auth.json secret + writable emptyDir)·writable `/tmp` 마운트.
+
 ## config / graceful off (라우트 상시 등록 + 503)
 
 - `src/core/config.ts`: `ANTHROPIC_API_KEY: z.string().optional()` (+ `.env.example` 주석 라인).

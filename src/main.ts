@@ -30,6 +30,7 @@ import { FilesClient } from "./modules/files/files.client.ts";
 import { DrizzleReceiptRepo } from "./modules/files/receipts.repo.ts";
 import { ReceiptsService } from "./modules/files/receipts.service.ts";
 import { ClaudeUsageParser } from "./modules/usage-imports/usage-parser.claude.ts";
+import { CodexUsageParser } from "./modules/usage-imports/usage-parser.codex.ts";
 
 const core = createCore();
 // boot self-migrate(homelab 계약) — 서빙 전 멱등 마이그레이션. 직결 URL, 실패 시 부팅 중단(fail-closed).
@@ -108,12 +109,16 @@ const receipts =
         { bucket: core.config.FILES_BUCKET },
       )
     : undefined;
-// 사용내역 파싱(LLM) — 키 있을 때만(없으면 parse 라우트 503).
-const usageParser = core.config.ANTHROPIC_API_KEY
-  ? new ClaudeUsageParser(core.config.ANTHROPIC_API_KEY, {
-      onError: (e) => core.logger.warn({ err: e }, "usage parse failed"),
-    })
-  : undefined;
+// 사용내역 파싱(LLM) — 엔진 선택(설계 §엔진 선택). codex=구독 CLI, 그 외 키 있으면 Claude, 없으면 503.
+const onUsageParseError = (e: unknown) => core.logger.warn({ err: e }, "usage parse failed");
+const usageParser =
+  core.config.USAGE_PARSER_ENGINE === "codex"
+    ? new CodexUsageParser({ onError: onUsageParseError })
+    : core.config.ANTHROPIC_API_KEY
+      ? new ClaudeUsageParser(core.config.ANTHROPIC_API_KEY, { onError: onUsageParseError })
+      : undefined;
+if (core.config.USAGE_PARSER_ENGINE === "claude" && !core.config.ANTHROPIC_API_KEY)
+  core.logger.warn("USAGE_PARSER_ENGINE=claude이지만 ANTHROPIC_API_KEY 없음 — 파싱 503");
 const v1 = buildV1App({
   tripsService,
   membersService,

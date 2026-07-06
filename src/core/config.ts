@@ -37,8 +37,10 @@ export const env = createEnv({
     FILES_BASE_URL: z.string().url().optional(),
     FILES_API_KEY: z.string().optional(),
     FILES_BUCKET: z.string().default("trip-mate"),
-    // ── 사용내역 파싱(LLM) ── 없으면 parse 라우트 503(graceful off).
-    // prod 봉인은 FE의 외부 LLM 전송 고지 UI 배포 이후에만(설계 문서 §트러스트 바운더리).
+    // ── 사용내역 파싱(LLM) ── 엔진 미결정+키 없음이면 parse 라우트 503(graceful off).
+    // prod 활성화는 FE의 외부 LLM 전송 고지 UI 배포 이후에만(설계 문서 §트러스트 바운더리).
+    // "codex" = Codex CLI(구독, 파드에 codex 바이너리+CODEX_HOME 필요) / "claude"·미설정 = ANTHROPIC_API_KEY 있으면 Claude API.
+    USAGE_PARSER_ENGINE: z.enum(["claude", "codex"]).optional(),
     ANTHROPIC_API_KEY: z.string().optional(),
 
     USE_SECURE_COOKIES: z
