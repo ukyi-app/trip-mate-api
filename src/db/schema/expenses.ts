@@ -51,6 +51,7 @@ export const expenses = pgTable(
     created_by_member_id: uuid().notNull(),
     last_modified_by_member_id: uuid(),
     memo: text(),
+    receipt_object_key: text(), // files 서버 object key(영수증, nullable — 프록시 업로드 시 설정)
     spent_at: timestamp({ withTimezone: true }).notNull(),
     refund_of_expense_id: uuid(), // §47.1 — composite FK (trip_id, …) → expenses
     version: integer().notNull().default(0), // 낙관적 잠금 §31.6

@@ -36,6 +36,13 @@
       "when": 1782795918543,
       "tag": "0004_tan_red_ghost",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783310998635,
+      "tag": "0005_spicy_magneto",
+      "breakpoints": true
     }
   ]
 }
