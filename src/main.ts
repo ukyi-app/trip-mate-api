@@ -24,6 +24,7 @@ import { CurrencyApiProvider } from "./modules/fx/provider/currencyapi.ts";
 import { buildV1App } from "./app.ts";
 import { sweepExpiredIdempotency } from "./core/idempotency.ts";
 import { runMigrations } from "./db/migrate.ts";
+import { rateLimitWrites } from "./core/rate-limit.ts";
 
 const core = createCore();
 // boot self-migrate(homelab 계약) — 서빙 전 멱등 마이그레이션. 직결 URL, 실패 시 부팅 중단(fail-closed).
@@ -99,6 +100,7 @@ const v1 = buildV1App({
   memberLookup: (t, u) => memberRepo.findMembership(t, u),
   idempotencyStore: { db: core.db, ttlSeconds: 86_400 }, // DB-durable(§5) — Redis는 auth·FX캐시 전용
   webOrigins: core.config.WEB_ORIGINS,
+  rateLimit: rateLimitWrites(redis, { scope: "v1w", max: 60, windowSec: 60 }), // 공개 API 쓰기 60/min/IP
 });
 app.route("/", v1); // v1 라우트는 /v1/... (basePath)
 
