@@ -1,4 +1,5 @@
 import type { OpenAPIHono } from "@hono/zod-openapi";
+import type { MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { createApp, registerSecurity } from "./core/openapi.ts";
 import { csrf } from "./core/csrf.ts";
@@ -26,6 +27,7 @@ export interface V1Deps {
   memberLookup: MembershipLookup;
   idempotencyStore: IdempotencyStore | null;
   webOrigins: string[];
+  rateLimit?: MiddlewareHandler; // 쓰기 rate limit(main에서 Redis 바인딩 주입, 없으면 미적용)
 }
 
 /** /v1 라우트·security·미들웨어(CORS→CSRF→라우트)를 등록한 OpenAPIHono 반환.
@@ -43,6 +45,7 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
       allowHeaders: ["Content-Type", "Idempotency-Key"], // Idempotency-Key preflight 허용(finding #5 pass1)
     }),
   );
+  if (deps.rateLimit) v1.use("*", deps.rateLimit); // 라우트 전 rate limit(csrf보다 앞 — 거부 요청도 카운트)
   v1.use("*", csrf(deps.webOrigins)); // 안전 메서드 bypass·정확 Origin
   registerTripRoutes(v1, {
     tripsService: deps.tripsService,

@@ -24,6 +24,9 @@ export function createAuth(deps: AuthDeps) {
     secret: deps.secret,
     baseURL: deps.baseURL,
     trustedOrigins: deps.trustedOrigins,
+    // 인증 엔드포인트 rate limit(로그인/OAuth 브루트포스 방어). Redis(secondaryStorage) 스토리지.
+    // enabled는 Better Auth 기본(prod 자동 on) — 재사용, storage만 분산 Redis로 지정.
+    rateLimit: { storage: "secondary-storage" },
     // 세션: Valkey(secondaryStorage) — Postgres 세션 테이블 비대화 회피(설계 D2)
     secondaryStorage: {
       get: (k) => storage.get(k),
