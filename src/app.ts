@@ -15,6 +15,7 @@ import type { SettlementsService } from "./modules/settlements/settlements.servi
 import type { TripDefaultsPort } from "./modules/fx/fx.types.ts";
 import type { IdempotencyStore } from "./core/idempotency.ts";
 import type { SessionResolver, MembershipLookup } from "./core/guards.ts";
+import type { Mailer } from "./modules/notifications/mailer.port.ts";
 
 export interface V1Deps {
   tripsService: TripsService<Record<string, unknown>>;
@@ -28,6 +29,7 @@ export interface V1Deps {
   idempotencyStore: IdempotencyStore | null;
   webOrigins: string[];
   rateLimit?: MiddlewareHandler; // 쓰기 rate limit(main에서 Redis 바인딩 주입, 없으면 미적용)
+  mailer?: Mailer; // 초대 이메일 발송(없으면 skip). inviteBaseUrl은 webOrigins[0] 파생.
 }
 
 /** /v1 라우트·security·미들웨어(CORS→CSRF→라우트)를 등록한 OpenAPIHono 반환.
@@ -58,6 +60,7 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
     resolver: deps.resolver,
     emailOf: deps.emailOf,
     memberLookup: deps.memberLookup,
+    ...(deps.mailer ? { mailer: deps.mailer, inviteBaseUrl: deps.webOrigins[0] ?? "" } : {}),
   });
   registerExpenseRoutes(v1, {
     expensesService: deps.expensesService,

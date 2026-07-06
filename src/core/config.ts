@@ -30,6 +30,10 @@ export const env = createEnv({
     // ── FX 통합 슬라이스 추가 ── (provider 키 — 있으면 auto FX, 없으면 identity/manual만)
     OXR_APP_ID: z.string().optional(),
     CURRENCYAPI_KEY: z.string().optional(),
+    // ── 초대 이메일(Resend) ── 없으면 발송 skip(no-op)
+    RESEND_API_KEY: z.string().optional(),
+    MAIL_FROM: z.string().default("noreply@ukyi.app"), // Resend 검증된 발신 도메인
+
     USE_SECURE_COOKIES: z
       .enum(["true", "false"])
       .default("true")

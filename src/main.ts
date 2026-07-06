@@ -25,6 +25,7 @@ import { buildV1App } from "./app.ts";
 import { sweepExpiredIdempotency } from "./core/idempotency.ts";
 import { runMigrations } from "./db/migrate.ts";
 import { rateLimitWrites } from "./core/rate-limit.ts";
+import { createMailer } from "./modules/notifications/mailer.resend.ts";
 
 const core = createCore();
 // boot self-migrate(homelab 계약) — 서빙 전 멱등 마이그레이션. 직결 URL, 실패 시 부팅 중단(fail-closed).
@@ -89,6 +90,11 @@ const expensesService = new ExpensesService(core.db, new DrizzleExpenseRepo(core
   onWarn: (event, detail) => core.logger.warn({ event, detail }, "fx"),
 });
 const settlementsService = new SettlementsService(core.db, new DrizzleSettlementRepo(core.db));
+const mailer = createMailer({
+  from: core.config.MAIL_FROM,
+  onError: (e) => core.logger.warn({ err: e }, "invite email send failed"),
+  ...(core.config.RESEND_API_KEY ? { apiKey: core.config.RESEND_API_KEY } : {}),
+});
 const v1 = buildV1App({
   tripsService,
   membersService,
@@ -101,6 +107,7 @@ const v1 = buildV1App({
   idempotencyStore: { db: core.db, ttlSeconds: 86_400 }, // DB-durable(§5) — Redis는 auth·FX캐시 전용
   webOrigins: core.config.WEB_ORIGINS,
   rateLimit: rateLimitWrites(redis, { scope: "v1w", max: 60, windowSec: 60 }), // 공개 API 쓰기 60/min/IP
+  mailer, // 초대 이메일(Resend 또는 no-op)
 });
 app.route("/", v1); // v1 라우트는 /v1/... (basePath)
 
