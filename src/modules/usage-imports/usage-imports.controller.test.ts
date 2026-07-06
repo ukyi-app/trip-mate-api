@@ -8,7 +8,15 @@ import type { UsageParseInput, UsageParserPort } from "./usage-parser.port.ts";
 // zod v4 uuid()는 RFC 버전 비트까지 검증 — all-zeros류는 422가 나므로 실제 v4 형태 사용
 const TRIP_ID = "a3bb189e-8bf9-4c8b-9f36-6c5c8b2a1b90";
 
-function appWith(opts: { parser?: UsageParserPort; member?: boolean; now?: () => Date } = {}) {
+type TripCtx = { timezone: string; start_date: string; end_date: string };
+function appWith(
+  opts: {
+    parser?: UsageParserPort;
+    member?: boolean;
+    now?: () => Date;
+    tripContext?: (tripId: string) => Promise<TripCtx | null>;
+  } = {},
+) {
   const app = createApp();
   registerErrorFilter(app);
   const resolver: SessionResolver = async () => ({ user: { id: "u1" } });
@@ -19,6 +27,7 @@ function appWith(opts: { parser?: UsageParserPort; member?: boolean; now?: () =>
     memberLookup,
     ...(opts.parser ? { parser: opts.parser } : {}),
     ...(opts.now ? { now: opts.now } : {}),
+    ...(opts.tripContext ? { tripContext: opts.tripContext } : {}),
   });
   return app;
 }
@@ -55,6 +64,56 @@ describe("usage-imports parse 라우트", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ drafts: [DRAFT] });
     expect(calls).toEqual([{ text: "07/05 스타벅스 6,500원", referenceDate: "2026-07-06" }]);
+  });
+
+  it("tripContext 주입 → 파서에 여행 timezone·기간 전달 + 기준일은 여행 timezone 기준", async () => {
+    const calls: UsageParseInput[] = [];
+    const app = appWith({
+      parser: {
+        parse: async (i) => {
+          calls.push(i);
+          return [];
+        },
+      },
+      // 뉴욕(UTC-5): now가 UTC 08-02 02:00 → 뉴욕은 08-01 → 기준일 2026-08-01 (KST면 08-02)
+      tripContext: async () => ({
+        timezone: "America/New_York",
+        start_date: "2026-08-01",
+        end_date: "2026-08-05",
+      }),
+      now: () => new Date("2026-08-02T02:00:00Z"),
+    });
+    const res = await post(app, { text: "08/02 델리 $12 승인" });
+    expect(res.status).toBe(200);
+    expect(calls[0]!.tripTimezone).toBe("America/New_York");
+    expect(calls[0]!.tripStart).toBe("2026-08-01");
+    expect(calls[0]!.tripEnd).toBe("2026-08-05");
+    expect(calls[0]!.referenceDate).toBe("2026-08-01"); // 여행 timezone 기준(KST 아님)
+  });
+
+  it("여행 기간 밖 spent_at 초안 → confidence 강제 하향(결정적 후검증)", async () => {
+    const app = appWith({
+      parser: {
+        // 파서(LLM)가 기간 밖 날짜를 high-confidence로 내도 컨트롤러가 하향
+        parse: async () => [
+          {
+            title: "가게",
+            local_amount: "1000",
+            local_currency: "USD",
+            spent_at: "2026-09-01T16:00:00Z",
+            confidence: 0.95,
+          },
+        ],
+      },
+      tripContext: async () => ({
+        timezone: "America/New_York",
+        start_date: "2026-08-01",
+        end_date: "2026-08-05",
+      }),
+    });
+    const res = await post(app, { text: "x" });
+    const body = (await res.json()) as { drafts: { confidence: number }[] };
+    expect(body.drafts[0]!.confidence).toBeLessThanOrEqual(0.3);
   });
 
   it("reference_date 미전달 → 서버 now의 KST 날짜를 기준일로 사용", async () => {

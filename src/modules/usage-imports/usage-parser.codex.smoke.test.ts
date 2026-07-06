@@ -28,4 +28,35 @@ describe.skipIf(!SMOKE)("CodexUsageParser 계약 smoke (opt-in: CODEX_SMOKE=1)",
     });
     expect(drafts).toHaveLength(0);
   }, 90_000);
+
+  it("서쪽 여행 timezone(America/New_York) + date-only → 트립-로컬 날짜 하루 안 밀림", async () => {
+    const parser = new CodexUsageParser();
+    const drafts = await parser.parse({
+      text: "[신한카드] 08/02 DELI NEW YORK USD 12.00 승인",
+      referenceDate: "2026-08-02",
+      tripTimezone: "America/New_York",
+      tripStart: "2026-08-01",
+      tripEnd: "2026-08-05",
+    });
+    expect(drafts).toHaveLength(1);
+    // spent_at을 뉴욕 로컬로 환산했을 때 날짜가 08/02여야 함(03:00Z=전날 밤 뉴욕 → 실패)
+    const nyDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(
+      new Date(drafts[0]!.spent_at),
+    );
+    expect(nyDate).toBe("2026-08-02");
+  }, 90_000);
+
+  it("연말연시 여행 + 기준일보다 미래인 01월 날짜 → 여행 연도 안으로(전년 아님)", async () => {
+    const parser = new CodexUsageParser();
+    const drafts = await parser.parse({
+      text: "[KB국민카드] 01/02 12:00 스타벅스 5,000원 승인",
+      referenceDate: "2026-12-30",
+      tripTimezone: "Asia/Seoul",
+      tripStart: "2026-12-28",
+      tripEnd: "2027-01-03",
+    });
+    expect(drafts).toHaveLength(1);
+    // 01/02는 기준일(12/30)보다 미래지만 여행 기간 안 → 2027-01-02여야 함(2026-01/2025 아님)
+    expect(drafts[0]!.spent_at.startsWith("2027-01-02")).toBe(true);
+  }, 90_000);
 });

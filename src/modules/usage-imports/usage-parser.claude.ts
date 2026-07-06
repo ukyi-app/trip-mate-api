@@ -14,8 +14,8 @@ export const SYSTEM_PROMPT = `당신은 한국 카드 SMS/앱푸시 사용내역
 - 승인취소/거래취소/환불 항목은 같은 입력 안에서 대응하는 승인 건(같은 상호·금액)을 찾아 둘 다 제외한다. 대응 건이 입력에 없는 취소는 무시한다. 취소 라인만 버리고 승인을 남기지 마라. 페어링이 확실하지 않으면 승인 건을 유지하되 confidence를 낮춰라.
 - 금액은 통화의 최소단위 정수 문자열로 변환한다. 예: 37,900원 → local_amount "37900"·local_currency "KRW" / $12.34 → "1234"·"USD" / ¥1,200 → "1200"·"JPY".
 - 해외승인처럼 현지 금액과 카드 청구(승인) 금액이 함께 있으면 현지 금액을 local_amount로, 청구 금액을 card_billed_amount(최소단위 정수 문자열)·card_billed_currency(보통 "KRW")로 둘 다 담는다. 두 필드는 반드시 함께 채운다.
-- 날짜에 연도가 없으면 기준일 기준 가장 최근 과거로 해석하고, 연도를 추론한 초안은 confidence를 낮춰라. 기준일보다 미래인 날짜를 만들지 마라.
-- spent_at은 UTC ISO 8601로 변환한다(한국 시각 07/05 12:30 → "2026-07-05T03:30:00Z"). 시각이 없으면 03:00:00Z(정오 KST)로 두고 confidence를 낮춰라.
+- 연도 없는 날짜 해석 우선순위: (1) 여행 기간이 주어지면 그 기간(여행 시작~종료) 안에 들도록 연도를 정한다 — 이때 기준일보다 미래여도 여행 기간 안이면 허용한다(연말연시에 걸친 여행 포함, 예: 12/28~01/03 여행에서 01/02는 기준일 12/30보다 미래여도 여행 연도의 다음 해 1월로 해석). 어떤 연도로도 기간 안에 못 들면 가장 가까운 해석을 쓰되 confidence를 낮춘다. (2) 여행 기간이 없으면 기준일 기준 가장 최근 과거로 해석하고 기준일보다 미래 날짜를 만들지 않는다. 두 경우 모두 연도를 추론했으면 confidence를 낮춰라.
+- spent_at은 UTC ISO 8601로 변환한다. 사용내역의 현지 날짜·시각은 여행 timezone(위 "여행 기간"에 주어지면 그 timezone, 없으면 Asia/Seoul) 기준으로 해석해 UTC로 변환한다 — 이 timezone이 트립-로컬 날짜(FX·정산 기준)를 결정하므로 date-only 입력이 하루 밀리지 않게 하라. 시각이 없으면 그 timezone의 정오로 두고 confidence를 낮춰라. 예: 여행 timezone이 Asia/Seoul이고 현지 07/05 12:30이면 "2026-07-05T03:30:00Z", America/New_York이고 date-only 08/02면 정오 뉴욕(=16:00Z) → "2026-08-02T16:00:00Z"(트립-로컬 08/02 유지).
 - title은 상호명만 간결하게. category와 payment_method는 확신할 때만 채운다.
 - 각 초안의 confidence는 0~1 사이 숫자.
 - 지출이 없으면 drafts를 빈 배열로 반환한다.`;
@@ -52,7 +52,11 @@ export function redactSensitive(text: string): string {
 }
 
 export function buildUserPrompt(input: UsageParseInput): string {
-  return `기준일: ${input.referenceDate}\n사용내역 원문:\n${redactSensitive(input.text)}`;
+  const period =
+    input.tripStart && input.tripEnd
+      ? `여행 기간: ${input.tripStart} ~ ${input.tripEnd}${input.tripTimezone ? ` (${input.tripTimezone})` : ""}\n`
+      : "";
+  return `기준일: ${input.referenceDate}\n${period}사용내역 원문:\n${redactSensitive(input.text)}`;
 }
 
 const draftsPayloadSchema = z.object({ drafts: z.array(usageDraftSchema).max(50) });
