@@ -5,8 +5,18 @@ import {
   type SessionResolver,
   type MembershipLookup,
 } from "../../core/guards.ts";
-import { ValidationError } from "../../core/errors.ts";
+import { ValidationError, UnsupportedMediaTypeError } from "../../core/errors.ts";
 import type { ReceiptsPort } from "./receipts.service.ts";
+
+// 영수증 허용 타입 — 임의 타입 저장·inline 서빙 시 stored XSS(HTML/SVG). 이미지·PDF만.
+const RECEIPT_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "application/pdf",
+]);
 
 interface Deps {
   service: ReceiptsPort;
@@ -24,10 +34,14 @@ export function registerReceiptRoutes(app: OpenAPIHono, deps: Deps): void {
   const max = deps.maxBytes ?? DEFAULT_MAX;
 
   app.post("/trips/:tripId/expenses/:expenseId/receipt", auth, member, async (c) => {
+    const ct = (c.req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+    if (!RECEIPT_TYPES.has(ct))
+      throw new UnsupportedMediaTypeError("unsupported receipt type", {
+        allowed: [...RECEIPT_TYPES],
+      });
     const buf = await c.req.arrayBuffer();
     if (buf.byteLength === 0) throw new ValidationError("empty receipt body");
     if (buf.byteLength > max) throw new ValidationError("receipt too large", { max });
-    const ct = c.req.header("content-type") ?? "application/octet-stream";
     const { objectKey } = await deps.service.attach(
       c.req.param("tripId")!,
       c.req.param("expenseId")!,
@@ -39,7 +53,13 @@ export function registerReceiptRoutes(app: OpenAPIHono, deps: Deps): void {
 
   app.get("/trips/:tripId/expenses/:expenseId/receipt", auth, member, async (c) => {
     const obj = await deps.service.get(c.req.param("tripId")!, c.req.param("expenseId")!);
-    return c.body(obj.bytes as unknown as ArrayBuffer, 200, { "Content-Type": obj.contentType });
+    // 하드닝: 절대 inline 렌더 안 함(attachment) + sniff 차단 + CSP sandbox(stored XSS 방어)
+    return c.body(obj.bytes as unknown as ArrayBuffer, 200, {
+      "Content-Type": obj.contentType,
+      "Content-Disposition": 'attachment; filename="receipt"',
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+    });
   });
 
   app.delete("/trips/:tripId/expenses/:expenseId/receipt", auth, member, async (c) => {

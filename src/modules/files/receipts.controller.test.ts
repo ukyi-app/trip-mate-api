@@ -40,6 +40,28 @@ describe("receipts 라우트", () => {
     expect(res.status).toBe(201);
     expect(calls[0]).toMatchObject({ t: "t1", e: "e1", n: 4, ct: "image/jpeg" });
   });
+  it("POST 허용 안 된 Content-Type(text/html) → 415 (XSS 방어)", async () => {
+    const res = await appWith(svc()).request("/trips/t1/expenses/e1/receipt", {
+      method: "POST",
+      headers: { "content-type": "text/html" },
+      body: new Uint8Array([1, 2]),
+    });
+    expect(res.status).toBe(415);
+  });
+  it("POST charset 파라미터 붙은 image/png → 201(허용)", async () => {
+    const res = await appWith(svc()).request("/trips/t1/expenses/e1/receipt", {
+      method: "POST",
+      headers: { "content-type": "image/png; charset=binary" },
+      body: new Uint8Array([1, 2]),
+    });
+    expect(res.status).toBe(201);
+  });
+  it("GET 응답 하드닝 헤더(attachment·nosniff·CSP sandbox)", async () => {
+    const res = await appWith(svc()).request("/trips/t1/expenses/e1/receipt");
+    expect(res.headers.get("content-disposition")).toContain("attachment");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("content-security-policy")).toContain("sandbox");
+  });
   it("POST 빈 바디 → 422", async () => {
     const res = await appWith(svc()).request("/trips/t1/expenses/e1/receipt", {
       method: "POST",
