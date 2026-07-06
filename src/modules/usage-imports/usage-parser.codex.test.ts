@@ -224,8 +224,19 @@ describe("CodexUsageParser (fake run 주입)", () => {
     );
   });
 
-  it("직렬화(동시 1) — 두 번째 동시 요청은 대기 없이 UnavailableError", async () => {
-    // 동시 1: seed CODEX_HOME 제자리 토큰 리프레시의 torn-write·rotation 소실 방지(파드 고갈도 함께).
+  it("미착수 실패(UnavailableError)는 그대로 통과(쿼터 환불 대상) — UpstreamError로 감싸지 않음", async () => {
+    const parser = new CodexUsageParser({
+      run: async () => {
+        throw new UnavailableError("codex launch failed"); // spawn ENOENT 등 미착수
+      },
+    });
+    await expect(parser.parse({ text: "x", referenceDate: "2026-07-06" })).rejects.toBeInstanceOf(
+      UnavailableError,
+    );
+  });
+
+  it("자기보호 동시성(동시 1) — 두 번째 동시 parse는 즉시 UnavailableError, 완료 후 재실행", async () => {
+    // parse가 self-guard: seed CODEX_HOME 토큰 리프레시 torn-write·rotation 소실 방지 + 파드 고갈 방지.
     let release!: () => void;
     const gate = new Promise<void>((r) => {
       release = r;
@@ -238,10 +249,9 @@ describe("CodexUsageParser (fake run 주입)", () => {
     });
     const input = { text: "x", referenceDate: "2026-07-06" };
     const p1 = parser.parse(input);
-    await expect(parser.parse(input)).rejects.toBeInstanceOf(UnavailableError);
+    await expect(parser.parse(input)).rejects.toBeInstanceOf(UnavailableError); // 포화 → busy
     release();
     await expect(p1).resolves.toHaveLength(1);
-    // 슬롯 반환 후에는 다시 실행 가능
-    await expect(parser.parse(input)).resolves.toHaveLength(1);
+    await expect(parser.parse(input)).resolves.toHaveLength(1); // 슬롯 반환 후 재실행
   });
 });

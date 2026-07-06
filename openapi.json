@@ -3202,6 +3202,16 @@
               }
             }
           },
+          "429": {
+            "description": "429 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
           "502": {
             "description": "502 problem+json",
             "content": {

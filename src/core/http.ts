@@ -12,7 +12,7 @@ export const problemSchema = z
   })
   .openapi("Problem");
 
-type Status = 400 | 403 | 404 | 409 | 422 | 500 | 502 | 503;
+type Status = 400 | 403 | 404 | 409 | 422 | 429 | 500 | 502 | 503;
 /** route responses에 펼칠 표준 에러 응답 셋. 예 `...errorResponses(403, 404, 409)`. */
 export function errorResponses(...statuses: Status[]) {
   const out: Record<

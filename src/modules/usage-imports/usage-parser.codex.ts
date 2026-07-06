@@ -192,7 +192,11 @@ export const runCodexExec: CodexRun = async ({ prompt, timeoutMs }) => {
         ],
         { stdio: ["pipe", "ignore", "ignore"], timeout: timeoutMs, env },
       );
-      child.on("error", reject);
+      // spawn 실패(ENOENT 등 바이너리 부재/미실행) = **미착수** → UnavailableError(컨트롤러가 쿼터 환불).
+      // meta는 sanitized(retryAfterSeconds)만 — raw spawn err(syscall·path·temp 경로)를 담으면 problem+json으로 누출(리뷰).
+      child.on("error", () =>
+        reject(new UnavailableError("codex launch failed", { retryAfterSeconds: 5 })),
+      );
       child.on("close", (code) =>
         code === 0 ? resolve() : reject(new Error(`codex exec exit ${code ?? "killed"}`)),
       );
@@ -209,14 +213,16 @@ export const runCodexExec: CodexRun = async ({ prompt, timeoutMs }) => {
 // 초과분은 대기 없이 503(fail-fast) — FE 재시도. codex 프로세스는 무겁다(≤60s).
 const MAX_CONCURRENT = 1;
 
-/** Codex CLI(구독) 어댑터. 실패는 onError 로깅 후 UpstreamError로 정규화(claude 어댑터와 동일 규약). */
+/** Codex CLI(구독) 어댑터. 실패는 onError 로깅 후 UpstreamError로 정규화(claude 어댑터와 동일 규약).
+ *  parse가 동시성을 **자기보호**(동기 check+acquire → busy면 UnavailableError). 슬롯은 parse 실행 동안만 보유하므로
+ *  컨트롤러가 context·quota를 parse **앞**에 두면 I/O 동안 슬롯을 잡지 않는다. busy 시 컨트롤러가 쿼터 환불. */
 export class CodexUsageParser implements UsageParserPort {
   private running = 0;
 
   constructor(private readonly opts: { run?: CodexRun; onError?: (e: unknown) => void } = {}) {}
 
   async parse(input: UsageParseInput): Promise<UsageDraft[]> {
-    // 슬롯 포화 → 즉시 503 + Retry-After(백프레셔). codex 직렬화라 한 요청이 슬롯을 잡음.
+    // 동기 check+acquire(첫 await 전) — 슬롯 포화면 즉시 busy 503. 실행 동안만 슬롯 보유.
     if (this.running >= MAX_CONCURRENT)
       throw new UnavailableError("parser busy", { retryAfterSeconds: 5 });
     this.running += 1;
@@ -227,6 +233,7 @@ export class CodexUsageParser implements UsageParserPort {
       });
       return validateDrafts(normalizeDrafts(JSON.parse(raw) as unknown));
     } catch (e) {
+      if (e instanceof UnavailableError) throw e;
       this.opts.onError?.(e);
       throw e instanceof UpstreamError ? e : new UpstreamError("usage parse failed");
     } finally {

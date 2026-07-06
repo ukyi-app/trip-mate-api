@@ -21,7 +21,10 @@
 
 **메트릭**: 무의존 Prometheus 텍스트 포맷(hand-rolled registry, 새 dep 없음). `usage_parse_requests_total{engine,status}`·`usage_parse_errors_total{type}`·`usage_parse_duration_seconds`(히스토그램). `GET /metrics`로 노출(우선 메인 8080 포트). chart 전용 메트릭 포트(9090) scrape 배선은 owner 후속(문서화).
 
-- 테스트: 쿼터 미들웨어(Redis testcontainer, N+1→429·Retry-After), 메트릭 registry 증가·`/metrics` 포맷.
+- 테스트: 쿼터(Redis testcontainer, 원자 all-or-nothing·refund), 메트릭 registry·`/metrics` 포맷, 라우트(빈text 422·busy 503·쿼터 429 미소모 등).
+- **쿼터 흐름(codex 리뷰 수렴)**: context·quota는 **슬롯 없이 먼저** → parse가 동시성 자기보호(busy=UnavailableError) → 슬롯은 parse 실행 동안만(느린 I/O가 슬롯 미보유·false busy 방지). busy·미착수(codex spawn 실패)는 UnavailableError→**쿼터 환불**, LLM 착수 후 실패(UpstreamError)는 소모 유지. 지연은 성공·실패 모두 기록.
+- **⚠️ 잔여 한계(수용)**: codex는 "remote 호출을 실제로 했는지" 신호를 안 줘서 non-zero exit(auth 만료·config 오류 등 미착수 가능성)이 UpstreamError로 소모된다. 영향은 **codex outage 한정**(그때 기능은 어차피 전면 다운)·**window 내 제한**(복구 후 유저는 ≤1시간, trip ≤1일 대기). 깨끗한 분류는 codex 신호 부재로 비례 초과 → 한계로 수용. 엔진이 API(claude, per-call 과금)로 바뀌면 이 보수적 소모가 오히려 비용 방어에 맞음.
+- **메트릭 prod 활성(owner)**: `/metrics`는 공개 호스트가 아니라 **내부 포트(METRICS_PORT=9090)**에만, `METRICS_ENABLED=true`일 때만 바인딩(기본 off). 실 scrape엔 **둘 다** 필요: (1) `.app-config.yml` `metrics.enabled: true`(차트가 9090 서비스포트+prometheus scrape annotation 추가) + (2) `METRICS_ENABLED=true` 봉인(앱이 9090 바인딩). 포트는 9090으로 정렬됨.
 
 ## 슬라이스 3 — expense_drafts (지속형 초안)
 

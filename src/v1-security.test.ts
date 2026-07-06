@@ -57,6 +57,8 @@ describe("buildV1App 보안 체인(CSRF·CORS, finding #2 pass4)", () => {
     expect([200, 201]).toContain(res.status);
     expect(res.headers.get("access-control-allow-origin")).toBe(ORIGIN);
     expect(res.headers.get("access-control-allow-credentials")).toBe("true");
+    // 429/503 백오프 값을 브라우저 클라가 읽도록 Retry-After expose(비-safelisted)
+    expect(res.headers.get("access-control-expose-headers")).toContain("Retry-After");
   });
   it("형제 Origin mutation → 403(CSRF)", async () => {
     const u = await mkUser(ctx.sql);
