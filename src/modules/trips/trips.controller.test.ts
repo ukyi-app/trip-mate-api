@@ -40,6 +40,7 @@ const body = () => ({
   timezone: "Asia/Tokyo",
   primary_local_currency: "JPY",
   settlement_currency: "KRW",
+  admin_display_name: "여행대장",
 });
 const post = (app: ReturnType<typeof appFor>, b: unknown) =>
   app.request("/trips", {

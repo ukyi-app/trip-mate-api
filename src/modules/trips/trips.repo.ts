@@ -4,7 +4,7 @@ import { trips } from "../../db/schema/trips.ts";
 import { tripMembers } from "../../db/schema/members.ts";
 import { expenses } from "../../db/schema/expenses.ts";
 import { settlements } from "../../db/schema/settlements.ts";
-import type { CreateTrip, TripResponse, UpdateTrip } from "./trips.schema.ts";
+import type { CreateTripColumns, TripResponse, UpdateTrip } from "./trips.schema.ts";
 
 const COLS = {
   id: trips.id,
@@ -19,7 +19,7 @@ const COLS = {
 };
 
 export interface TripRepo {
-  create(input: CreateTrip, userId: string, tx?: unknown): Promise<TripResponse>;
+  create(input: CreateTripColumns, userId: string, tx?: unknown): Promise<TripResponse>;
   findById(id: string): Promise<TripResponse | null>;
   listForUser(userId: string): Promise<TripResponse[]>;
   update(id: string, patch: UpdateTrip): Promise<TripResponse | null>;
@@ -35,7 +35,7 @@ export class DrizzleTripRepo<T extends Record<string, unknown>> implements TripR
   constructor(private readonly db: PostgresJsDatabase<T>) {}
 
   // tx 핸들 주입 시 그 위에서 실행(trip 생성+멤버십 단일 tx, finding #2 pass1)
-  async create(input: CreateTrip, userId: string, tx?: unknown): Promise<TripResponse> {
+  async create(input: CreateTripColumns, userId: string, tx?: unknown): Promise<TripResponse> {
     const exec = (tx as PostgresJsDatabase<T> | undefined) ?? this.db;
     const rows = await exec
       .insert(trips)

@@ -128,6 +128,11 @@
             "type": "string",
             "minLength": 3,
             "maxLength": 3
+          },
+          "admin_display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
           }
         },
         "required": [
@@ -137,7 +142,8 @@
           "destination_countries",
           "timezone",
           "primary_local_currency",
-          "settlement_currency"
+          "settlement_currency",
+          "admin_display_name"
         ]
       },
       "UpdateTrip": {
