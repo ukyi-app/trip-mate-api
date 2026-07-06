@@ -21,6 +21,7 @@
     "auth:generate": "bunx @better-auth/cli generate --output src/db/schema/auth-schema.ts --y"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
     "@hono/zod-openapi": "^1.4.0",
     "@t3-oss/env-core": "^0.13.11",
     "better-auth": "^1.6.22",
