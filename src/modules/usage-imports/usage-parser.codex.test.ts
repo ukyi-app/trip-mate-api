@@ -5,6 +5,7 @@ import {
   CodexUsageParser,
   assertCodexToolsDisabled,
   buildCodexEnv,
+  buildCodexImagePrompt,
   buildCodexPrompt,
   codexAuthAvailable,
   findExecutableOnPath,
@@ -12,6 +13,7 @@ import {
   seedCodexHome,
   writeCodexHome,
 } from "./usage-parser.codex.ts";
+import type { UsageImage } from "./usage-parser.port.ts";
 
 describe("buildCodexPrompt (순수)", () => {
   it("도구 금지 문구·기준일·redact된 텍스트를 포함한다", () => {
@@ -23,6 +25,15 @@ describe("buildCodexPrompt (순수)", () => {
     expect(p).toContain("2026-07-06");
     expect(p).toContain("스타벅스");
     expect(p).not.toContain("010-1111-2222");
+  });
+});
+
+describe("buildCodexImagePrompt (순수)", () => {
+  it("도구 금지·이미지 지시·기준일 포함(텍스트 원문 없음)", () => {
+    const p = buildCodexImagePrompt({ referenceDate: "2026-07-06" });
+    expect(p).toContain("도구");
+    expect(p).toContain("이미지");
+    expect(p).toContain("2026-07-06");
   });
 });
 
@@ -253,5 +264,41 @@ describe("CodexUsageParser (fake run 주입)", () => {
     release();
     await expect(p1).resolves.toHaveLength(1);
     await expect(parser.parse(input)).resolves.toHaveLength(1); // 슬롯 반환 후 재실행
+  });
+
+  it("parseImage — run에 이미지·이미지 프롬프트 전달 후 초안 반환", async () => {
+    let seen: { prompt: string; image: UsageImage | undefined } | undefined;
+    const parser = new CodexUsageParser({
+      run: async ({ prompt, image }) => {
+        seen = { prompt, image };
+        return DRAFT_JSON;
+      },
+    });
+    const image: UsageImage = { bytes: new Uint8Array([1, 2, 3]), contentType: "image/png" };
+    const drafts = await parser.parseImage({ referenceDate: "2026-07-06" }, image);
+    expect(drafts).toHaveLength(1);
+    expect(seen?.image).toBe(image); // run에 이미지 전달
+    expect(seen?.prompt).toContain("이미지"); // 이미지 프롬프트
+  });
+
+  it("parse·parseImage가 동시성 슬롯을 공유(단일 codex) — 동시 시 두 번째 busy", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const parser = new CodexUsageParser({
+      run: async () => {
+        await gate;
+        return DRAFT_JSON;
+      },
+    });
+    const image: UsageImage = { bytes: new Uint8Array([1]), contentType: "image/jpeg" };
+    const p1 = parser.parse({ text: "x", referenceDate: "2026-07-06" });
+    // parse 실행 중 parseImage는 같은 슬롯 포화 → busy
+    await expect(parser.parseImage({ referenceDate: "2026-07-06" }, image)).rejects.toBeInstanceOf(
+      UnavailableError,
+    );
+    release();
+    await expect(p1).resolves.toHaveLength(1);
   });
 });

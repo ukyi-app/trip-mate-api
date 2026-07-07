@@ -115,11 +115,9 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
   registerUsageImportRoutes(v1, {
     resolver: deps.resolver,
     memberLookup: deps.memberLookup,
-    // 초안 지속: 저장 후 id 포함 반환(FE가 검토/편집/confirm에 사용). importKey=Idempotency-Key 크래시-갭 replay.
-    persistDrafts: async (tripId, memberId, list, source, importKey) =>
-      (await drafts.saveDrafts(tripId, memberId, list, source, importKey ? { importKey } : {})).map(
-        toDraftResponse,
-      ),
+    // 초안 지속: 저장 후 id 포함 반환(FE가 검토/편집/confirm에 사용). opts=importKey(크래시-갭 replay)·sourceObjectKey(이미지).
+    persistDrafts: async (tripId, memberId, list, source, opts) =>
+      (await drafts.saveDrafts(tripId, memberId, list, source, opts ?? {})).map(toDraftResponse),
     // parse가 저장을 하므로 Idempotency-Key 재시도 dedup 적용(중복 초안 방지) — 지출 create와 동일 store.
     ...(deps.idempotencyStore ? { idempotencyStore: deps.idempotencyStore } : {}),
     ...(deps.tripContext ? { tripContext: deps.tripContext } : {}), // 여행 timezone·기간 날짜 보정

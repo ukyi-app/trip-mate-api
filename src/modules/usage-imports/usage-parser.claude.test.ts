@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { UpstreamError } from "../../core/errors.ts";
 import {
+  ClaudeUsageParser,
   SYSTEM_PROMPT,
+  buildImageUserPrompt,
   buildUserPrompt,
   redactSensitive,
   validateDrafts,
@@ -93,6 +95,33 @@ describe("buildUserPrompt (순수)", () => {
   it("여행 기간이 없으면 여행 기간 줄을 넣지 않는다", () => {
     const p = buildUserPrompt({ text: "x", referenceDate: "2026-07-06" });
     expect(p).not.toContain("여행 기간");
+  });
+});
+
+describe("buildImageUserPrompt (순수)", () => {
+  it("기준일·이미지 지시 포함, 여행 기간 있으면 포함(텍스트 원문 없음)", () => {
+    const p = buildImageUserPrompt({
+      referenceDate: "2026-08-01",
+      tripTimezone: "America/New_York",
+      tripStart: "2026-08-01",
+      tripEnd: "2026-08-05",
+    });
+    expect(p).toContain("이미지");
+    expect(p).toContain("2026-08-01");
+    expect(p).toContain("America/New_York");
+    expect(p).not.toContain("사용내역 원문");
+  });
+});
+
+describe("ClaudeUsageParser.parseImage (타입 가드)", () => {
+  it("claude 비전 미지원 타입(heic)은 SDK 호출 전 UpstreamError", async () => {
+    const parser = new ClaudeUsageParser("test-key"); // 실 네트워크 미도달(가드가 먼저)
+    await expect(
+      parser.parseImage(
+        { referenceDate: "2026-07-06" },
+        { bytes: new Uint8Array([1]), contentType: "image/heic" },
+      ),
+    ).rejects.toBeInstanceOf(UpstreamError);
   });
 });
 

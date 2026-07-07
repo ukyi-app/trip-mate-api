@@ -74,6 +74,18 @@ describe("idempotency 미들웨어(DB)", () => {
     expect((await post(a, "/x", "samekey", { n: 1 })).status).toBe(201);
     expect((await post(a, "/y", "samekey", { n: 1 })).status).toBe(201); // 다른 경로 → 독립
   });
+  it("같은 키·같은 body·다른 쿼리 → 409(쿼리 시맨틱을 지문에 포함 — 리뷰)", async () => {
+    const a = app("u-query");
+    expect((await post(a, "/x?rd=2026-07-06", "qk", { n: 1 })).status).toBe(201);
+    // 같은 키·같은 body지만 쿼리(reference_date)만 다름 → stale 리플레이 대신 409
+    expect((await post(a, "/x?rd=2026-07-07", "qk", { n: 1 })).status).toBe(409);
+  });
+  it("같은 키·같은 body·쿼리 순서만 다름 → 리플레이(정규화 — 리뷰)", async () => {
+    const a = app("u-qorder");
+    const r1 = (await (await post(a, "/x?a=1&b=2", "qo", { n: 1 })).json()) as { calls: number };
+    const r2 = (await (await post(a, "/x?b=2&a=1", "qo", { n: 1 })).json()) as { calls: number };
+    expect(r2.calls).toBe(r1.calls); // 파라미터 순서만 다름 → 핸들러 재실행 안 됨(리플레이)
+  });
   it("핸들러 throw(422) → lock 해제, 같은 키 재시도 가능", async () => {
     const a = app("u-boom");
     expect((await post(a, "/boom", "bk", { n: 1 })).status).toBe(422);
