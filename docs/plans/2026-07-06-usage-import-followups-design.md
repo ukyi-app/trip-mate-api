@@ -51,3 +51,24 @@
 1. 슬라이스 1(날짜 보정) → 2(쿼터/메트릭) → 3(expense_drafts) → 4(이미지). 각 TDD(RED→GREEN)→`bun run check`+`test` 무회귀→codex 적대적 리뷰→한국어 conventional PR→squash 머지.
 2. 슬라이스 3이 데이터 모델 최대 변경(마이그레이션·introspection 가드 주의 — 기존 cascade 함정 [[trip-mate-api-slice-progress]] F12 참조).
 3. prod 활성화는 PB-1·파서 엔진 봉인 전제 유지(이 후속들도 파서 config-off 시 graceful).
+
+## 슬라이스 3 — 구현·적대적 리뷰 잔여(2026-07-07)
+
+expense_drafts 구현 후 codex 적대적 리뷰를 다회 반복하며 confirm 사가·parse 지속의 정합성·부분실패·동시성·멱등성을 경화. **닫은 이슈(코드+테스트):**
+
+- **소유자 스코프**: 초안은 가져온 멤버의 개인 큐 — 모든 조회/변경이 `(trip_id, created_by_member_id)` 스코프(프라이버시 + 교차-멤버 중복 확정 차단).
+- **stale payload**: `claimForConfirm`이 pending→confirmed 원자 전이 시 **커밋 payload를 RETURNING**으로 원자 반환 → 선행 PATCH와의 stale 창 제거.
+- **확정 body 바인딩**: claim 시점에 `confirm_payload` 컬럼에 확정 body를 원자 바인딩 → 복구·경합에서 항상 최초 claim한 body만 사용(동시 다른 body가 지출을 뒤엎지 못함).
+- **중복 지출 방지**: confirm은 `draft:<id>` 멱등키로 createExpense 재사용. **롤백 전 지출 존재 증명**(`findExpenseIdByKey`) — 동시 생성분이 있으면 롤백 대신 링크. 롤백은 **모든 시도가 정의적 도메인 실패(AppError)** 일 때만(애매한 인프라 실패는 커밋 가능성 → confirmed-미링크 유지, 재-confirm 복구).
+- **멱등 리플레이**: 확정+링크된 초안 재확정은 재생성 없이 기존 결과 반환. confirmed-미링크(부분 실패 잔여)는 목록에 노출돼 재-confirm으로 복구.
+- **멱등키 네임스페이스**: `draft:` 프리픽스는 **서버 전용** — idempotency 미들웨어가 클라 키의 이 프리픽스를 거부(클라가 지출 선점→오링크 차단).
+- **parse 지속 멱등**: parse가 초안을 저장하므로 Idempotency-Key를 `import_key`로 전달. **advisory xact lock + import_key**로 데이터-레벨 원자 replay(미들웨어 부재/크래시-갭에도 배치 중복 방지). discard된 배치는 재시도가 부활시키지 않음(키 존재를 삭제 포함으로 판정).
+- **상태전이 가드**: `setConfirmedExpense`는 confirmed·미삭제 행만 링크(pending+링크 유령행 방지). `softDelete`는 링크된 초안 삭제 불가. `updatePayload`는 pending만.
+- **스키마 정합**: confirm 스키마에 `card_billed`↔`manualRate` 상호배제 refine(지출 생성과 동일). 라우트 무조건 등록(openapi 스펙-런타임 일치).
+
+**잔여(설계 결정·활성화 시 확정 — PB-1 게이트 하에서 prod 미노출):**
+
+1. **card_billed 신뢰 경계(FF)**: confirm의 `card_billed_settlement_amount`는 **기존 `POST /v1/…/expenses`와 동일**하게 FE가 trip 정산통화 일치를 보증하는 신뢰 모델(설계 §card_billed). 초안 흐름은 파싱된 `card_billed_currency`를 알므로 서버측 통화 일치 검증을 **추가 강화**할 수 있음(두 엔드포인트 공통 개선 후보). 슬라이스 고유 회귀는 아님.
+2. **parse 멱등 opt-in(GG)**: Idempotency-Key는 opt-in(지출 생성과 동일 관례). 없으면 재시도가 중복 초안 배치를 만들 수 있음. 활성화 시 FE 계약에서 키 필수화 또는 서버 파생 키(user+trip+text hash)를 확정.
+3. **import_key body-safety(EE)**: 데이터-레벨 replay 마커는 body-hash·TTL 미보유. prod에선 미들웨어(24h TTL·body-hash·single-flight)가 커버. 24h 초과 키 재사용(클라 계약 위반)은 stale 반환 가능 — request-hash 컬럼은 활성화 시 FE 키 계약과 함께 확정.
+4. **동시 confirm 미세 경합**: `findExpenseIdByKey` 증명과 revert 사이의 극소 창(모든 시도 AppError + 동시 생성이 그 창에서 커밋)은 잔존하나 게이트+동일-소유자-이중확정 전제로 무시 가능.

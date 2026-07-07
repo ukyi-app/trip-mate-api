@@ -3,12 +3,26 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 import { TooManyRequestsError, UnavailableError } from "../../core/errors.ts";
 import { requireAuth, requireTripMember } from "../../core/guards.ts";
 import type { MembershipLookup, SessionResolver } from "../../core/guards.ts";
-import { errorResponses } from "../../core/http.ts";
+import { errorResponses, idempotencyKeyHeader } from "../../core/http.ts";
+import { idempotency, type IdempotencyStore } from "../../core/idempotency.ts";
 import type { UsageMetrics } from "../../core/metrics.ts";
+import { expenseDraftListSchema } from "../expense-drafts/expense-drafts.schema.ts";
+import type { ExpenseDraftResponse } from "../expense-drafts/expense-drafts.schema.ts";
 import type { ParserQuotaCheck, ParserQuotaRefund } from "./parser-quota.ts";
-import { usageParseRequestSchema, usageParseResponseSchema } from "./usage-imports.schema.ts";
+import { usageParseRequestSchema } from "./usage-imports.schema.ts";
+import type { UsageDraft } from "./usage-imports.schema.ts";
 import type { UsageParserPort } from "./usage-parser.port.ts";
 import { clampOutOfWindowConfidence } from "./usage-window.ts";
+
+/** 파싱 초안 지속 포트 — 저장 후 id 포함 응답 DTO 반환(expense-drafts 서비스 배선).
+ *  importKey=Idempotency-Key: 크래시-갭 재시도가 배치를 재삽입하지 않게 데이터-레벨 replay 키. */
+export type PersistDrafts = (
+  tripId: string,
+  memberId: string,
+  drafts: UsageDraft[],
+  source: "text" | "image",
+  importKey?: string,
+) => Promise<ExpenseDraftResponse[]>;
 
 /** 여행 컨텍스트(연도 없는 날짜를 여행 timezone·기간으로 보정). trip repo에서 조회, 없으면 KST 폴백. */
 export type TripContext = (
@@ -23,6 +37,8 @@ interface Deps {
   quotaCheck?: ParserQuotaCheck; // parse 전용 쿼터 소비(context 후·슬롯 예약 전). 없으면 미적용
   quotaRefund?: ParserQuotaRefund; // 슬롯 예약 실패(busy) 시 쿼터 환불
   metrics?: UsageMetrics; // 파싱 요청·지연 메트릭(없으면 미기록)
+  persistDrafts: PersistDrafts; // 파싱 초안 저장(지속형) — id 포함 반환. parser와 함께 배선
+  idempotencyStore?: IdempotencyStore | null; // Idempotency-Key 재시도 dedup(없으면 미적용). parse가 저장을 하므로 필요
   now?: () => Date; // 테스트 결정성 — reference_date 기본값(서버 오늘)
 }
 
@@ -51,18 +67,21 @@ const KST_DATE = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }); /
 export function registerUsageImportRoutes(app: OpenAPIHono, deps: Deps): void {
   const auth = requireAuth(deps.resolver);
   const member = requireTripMember(deps.memberLookup);
+  // parse가 초안을 **저장**하므로 재시도 dedup 필요 — Idempotency-Key 있으면 재시도는 저장 응답 리플레이(중복 초안 방지).
+  const idem = deps.idempotencyStore ? [idempotency(deps.idempotencyStore)] : [];
 
   app.openapi(
     createRoute({
       method: "post",
       path: "/trips/{tripId}/usage-imports/parse",
       security: [{ cookieAuth: [] }],
-      middleware: [auth, member],
+      middleware: [auth, member, ...idem],
       request: {
         params: z.object({ tripId: z.string().uuid() }),
+        headers: idempotencyKeyHeader,
         body: jsonBody(usageParseRequestSchema),
       },
-      responses: { ...ok(usageParseResponseSchema), ...errorResponses(403, 422, 429, 502, 503) },
+      responses: { ...ok(expenseDraftListSchema), ...errorResponses(403, 422, 429, 502, 503) },
     }),
     async (c) => {
       const parser = deps.parser;
@@ -125,7 +144,16 @@ export function registerUsageImportRoutes(app: OpenAPIHono, deps: Deps): void {
             tripEnd: trip.end_date,
           })
         : drafts;
-      return c.json({ drafts: checked }, 200);
+      // 지속형 초안 — 저장 후 id 포함 반환(FE가 검토/편집/confirm에 사용).
+      // Idempotency-Key를 import_key로 전달 → 크래시-갭 재시도가 배치를 중복 삽입하지 않음(데이터-레벨 replay).
+      const saved = await deps.persistDrafts(
+        tripId,
+        c.get("membership").id,
+        checked,
+        "text",
+        c.req.header("idempotency-key"),
+      );
+      return c.json({ drafts: saved }, 200);
     },
   );
 }

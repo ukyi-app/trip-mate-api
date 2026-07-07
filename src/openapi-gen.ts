@@ -14,6 +14,7 @@ const v1 = buildV1App({
   nameOf: async () => "",
   memberLookup: async () => null,
   idempotencyStore: null,
+  expenseDrafts: {} as never, // stub — 핸들러 미실행, 라우트 스키마만 필요(expense-drafts 경로 스펙 포함)
   webOrigins: ["http://localhost:5173"], // 정적 — env 불요
 });
 const doc = v1.getOpenAPI31Document({

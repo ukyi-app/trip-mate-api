@@ -35,6 +35,8 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ClaudeUsageParser } from "./modules/usage-imports/usage-parser.claude.ts";
+import { DrizzleDraftRepo } from "./modules/expense-drafts/expense-drafts.repo.ts";
+import { ExpenseDraftsService } from "./modules/expense-drafts/expense-drafts.service.ts";
 import {
   CodexUsageParser,
   assertCodexToolsDisabled,
@@ -116,6 +118,8 @@ const expensesService = new ExpensesService(core.db, new DrizzleExpenseRepo(core
   onWarn: (event, detail) => core.logger.warn({ event, detail }, "fx"),
 });
 const settlementsService = new SettlementsService(core.db, new DrizzleSettlementRepo(core.db));
+// 지속형 초안 — 파싱 결과 저장·확정. 확정은 기존 ExpensesService.createExpense 재사용(멱등키 draft:<id>).
+const expenseDrafts = new ExpenseDraftsService(new DrizzleDraftRepo(core.db), expensesService);
 const mailer = createMailer({
   from: core.config.MAIL_FROM,
   onError: (e) => core.logger.warn({ err: e }, "invite email send failed"),
@@ -182,6 +186,7 @@ const v1 = buildV1App({
   tripContext, // 사용내역 날짜 보정(여행 timezone·기간)
   usageQuota, // parse 전용 쿼터(check+refund)
   usageMetrics, // 파싱 메트릭
+  expenseDrafts, // 지속형 초안(parse 저장·조회·편집·확정·폐기)
 });
 app.route("/", v1); // v1 라우트는 /v1/... (basePath)
 

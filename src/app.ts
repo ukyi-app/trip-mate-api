@@ -25,6 +25,11 @@ import {
   registerUsageImportRoutes,
   type TripContext,
 } from "./modules/usage-imports/usage-imports.controller.ts";
+import { registerExpenseDraftRoutes } from "./modules/expense-drafts/expense-drafts.controller.ts";
+import {
+  toDraftResponse,
+  type ExpenseDraftsService,
+} from "./modules/expense-drafts/expense-drafts.service.ts";
 
 export interface V1Deps {
   tripsService: TripsService<Record<string, unknown>>;
@@ -45,6 +50,7 @@ export interface V1Deps {
   tripContext?: TripContext; // 사용내역 날짜 보정용 여행 timezone·기간 조회(없으면 KST 폴백)
   usageQuota?: ParserQuota; // parse 전용 per-user·per-trip 쿼터(check+refund)
   usageMetrics?: UsageMetrics; // 파싱 메트릭 registry
+  expenseDrafts: ExpenseDraftsService; // 지속형 초안(parse 저장·조회·편집·확정·폐기). 항상 배선(라우트 무조건 등록)
 }
 
 /** /v1 라우트·security·미들웨어(CORS→CSRF→라우트)를 등록한 OpenAPIHono 반환.
@@ -98,10 +104,24 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
       resolver: deps.resolver,
       memberLookup: deps.memberLookup,
     });
+  // 지속형 초안 — 라우트 무조건 등록(스펙-런타임 일치: openapi.json에 항상 포함). 서비스는 항상 배선.
+  const drafts = deps.expenseDrafts;
+  registerExpenseDraftRoutes(v1, {
+    service: drafts,
+    resolver: deps.resolver,
+    memberLookup: deps.memberLookup,
+  });
   // 사용내역 파싱 — parser 미주입이어도 등록(503로 명시적 off 신호, 스펙-런타임 일치).
   registerUsageImportRoutes(v1, {
     resolver: deps.resolver,
     memberLookup: deps.memberLookup,
+    // 초안 지속: 저장 후 id 포함 반환(FE가 검토/편집/confirm에 사용). importKey=Idempotency-Key 크래시-갭 replay.
+    persistDrafts: async (tripId, memberId, list, source, importKey) =>
+      (await drafts.saveDrafts(tripId, memberId, list, source, importKey ? { importKey } : {})).map(
+        toDraftResponse,
+      ),
+    // parse가 저장을 하므로 Idempotency-Key 재시도 dedup 적용(중복 초안 방지) — 지출 create와 동일 store.
+    ...(deps.idempotencyStore ? { idempotencyStore: deps.idempotencyStore } : {}),
     ...(deps.tripContext ? { tripContext: deps.tripContext } : {}), // 여행 timezone·기간 날짜 보정
     // 쿼터는 parser 있을 때만 — 미설정(503) 상태에서 쿼터를 소모하면 복구 후에도 429로 막힐 수 있음(리뷰).
     ...(deps.usageParser && deps.usageQuota

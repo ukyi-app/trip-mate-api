@@ -13,6 +13,7 @@ function docApp() {
     nameOf: async () => "",
     memberLookup: async () => null,
     idempotencyStore: null,
+    expenseDrafts: {} as never,
     webOrigins: ["http://localhost:5173"],
   });
 }

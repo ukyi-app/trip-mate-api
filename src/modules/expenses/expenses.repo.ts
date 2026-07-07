@@ -245,6 +245,26 @@ export class DrizzleExpenseRepo<T extends Record<string, unknown>> {
     return { ...row, participant_member_ids: parts.get(id) ?? [] } as ExpenseRow;
   }
 
+  /** 멱등키로 라이브 지출 id 조회 — 초안 confirm이 롤백 전 "지출 미생성"을 증명하는 데 사용(동시 생성분 회수). */
+  async findIdByIdempotencyKey(
+    tripId: string,
+    memberId: string,
+    key: string,
+  ): Promise<string | null> {
+    const rows = await this.db
+      .select({ id: expenses.id })
+      .from(expenses)
+      .where(
+        and(
+          eq(expenses.trip_id, tripId),
+          eq(expenses.created_by_member_id, memberId),
+          eq(expenses.idempotency_key, key),
+          isNull(expenses.deleted_at),
+        ),
+      );
+    return rows[0]?.id ?? null;
+  }
+
   /** keyset 페이지네이션(§6): 정렬 (spent_at desc, id desc), 커서=(spent_at,id) 미만.
    *  limit+1 조회로 hasMore 판정(다음 커서 발급 여부). 필터는 AND 결합, member는 결제자∪참여자. */
   async listForTrip(

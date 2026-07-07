@@ -49,6 +49,11 @@ describe("idempotency 미들웨어(DB)", () => {
     expect((await post(a, "/x", null, { n: 1 })).status).toBe(201);
     expect((await post(a, "/x", null, { n: 1 })).status).toBe(201);
   });
+  it("서버 예약 프리픽스(draft:) 클라 키는 422(초안 confirm 오링크 차단)", async () => {
+    const a = app();
+    const res = await post(a, "/x", "draft:anything", { n: 1 });
+    expect(res.status).toBe(422); // ValidationError → 클라가 서버 네임스페이스 선점 불가
+  });
   it("같은 키·같은 body → 저장된 동일 응답(핸들러 1회)", async () => {
     const a = app("u-replay");
     const r1 = (await (await post(a, "/x", "k1", { n: 1 })).json()) as { calls: number };

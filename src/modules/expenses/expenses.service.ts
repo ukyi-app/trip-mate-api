@@ -154,6 +154,11 @@ export class ExpensesService<T extends Record<string, unknown>> {
     }
   }
 
+  /** 멱등키로 라이브 지출 id 조회(초안 confirm 롤백 전 "지출 미생성" 증명용). */
+  findExpenseIdByKey(tripId: string, memberId: string, key: string): Promise<string | null> {
+    return this.repo.findIdByIdempotencyKey(tripId, memberId, key);
+  }
+
   async createExpense(
     tripId: string,
     input: CreateExpense,
