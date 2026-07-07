@@ -120,6 +120,8 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
   registerUsageImportRoutes(v1, {
     resolver: deps.resolver,
     memberLookup: deps.memberLookup,
+    // PB-1: LLM 전송 전 llm_disclosure fail-closed 기록(필수 dep — 항상 배선된 consentService에서).
+    recordDisclosure: (userId, opts) => deps.consentService.recordDisclosure(userId, opts),
     // 초안 지속: 저장 후 id 포함 반환(FE가 검토/편집/confirm에 사용). opts=importKey(크래시-갭 replay)·sourceObjectKey(이미지).
     persistDrafts: async (tripId, memberId, list, source, opts) =>
       (await drafts.saveDrafts(tripId, memberId, list, source, opts ?? {})).map(toDraftResponse),

@@ -42,6 +42,7 @@ function appWith(
     ) => Promise<{ ok: true } | { ok: false; retryAfter: number }>;
     quotaRefund?: (userId: string, tripId: string) => Promise<void>;
     persistDrafts?: PersistDrafts;
+    recordDisclosure?: (userId: string, opts?: { ip?: string }) => Promise<void>;
     maxImageBytes?: number;
     idempotencyStore?: IdempotencyStore;
   } = {},
@@ -55,6 +56,7 @@ function appWith(
     resolver,
     memberLookup,
     persistDrafts: opts.persistDrafts ?? defaultPersist,
+    recordDisclosure: opts.recordDisclosure ?? (async () => {}),
     ...(opts.parser ? { parser: opts.parser } : {}),
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.tripContext ? { tripContext: opts.tripContext } : {}),
@@ -401,6 +403,74 @@ describe("usage-imports parse 라우트", () => {
     await post(appWith({ metrics: naM }), { text: "x" });
     expect(naM.render()).toContain('usage_parse_requests_total{outcome="unavailable"} 1');
   });
+
+  it("PB-1 — 유효 parse는 LLM 전송 전 recordDisclosure(userId) 호출", async () => {
+    const calls: string[] = [];
+    let recordedBeforeParse = false;
+    const app = appWith({
+      parser: {
+        parse: async () => {
+          recordedBeforeParse = calls.length > 0;
+          return [DRAFT];
+        },
+      },
+      recordDisclosure: async (userId) => {
+        calls.push(userId);
+      },
+    });
+    const res = await post(app, { text: "x" });
+    expect(res.status).toBe(200);
+    expect(calls).toEqual(["u1"]);
+    expect(recordedBeforeParse).toBe(true); // 기록이 parse보다 먼저
+  });
+
+  it("PB-1 fail-closed — recordDisclosure 실패 시 파싱 중단, parser.parse 미호출", async () => {
+    let parsed = 0;
+    const app = appWith({
+      parser: {
+        parse: async () => {
+          parsed++;
+          return [DRAFT];
+        },
+      },
+      recordDisclosure: async () => {
+        throw new Error("db down");
+      },
+    });
+    const res = await post(app, { text: "x" });
+    expect(res.status).toBe(500); // 비-AppError → 500(전송 안 됨)
+    expect(parsed).toBe(0);
+  });
+
+  it("PB-1 — cf-connecting-ip를 recordDisclosure ip로 전달", async () => {
+    let seenIp: string | undefined;
+    const app = appWith({
+      parser: { parse: async () => [DRAFT] },
+      recordDisclosure: async (_u, o) => {
+        seenIp = o?.ip;
+      },
+    });
+    const res = await app.request(`/trips/${TRIP_ID}/usage-imports/parse`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "cf-connecting-ip": "1.2.3.4" },
+      body: JSON.stringify({ disclosure_accepted: true, text: "x" }),
+    });
+    expect(res.status).toBe(200);
+    expect(seenIp).toBe("1.2.3.4");
+  });
+
+  it("PB-1 — 쿼터 초과 시 recordDisclosure 미호출(전송 없음)", async () => {
+    let recorded = 0;
+    const app = appWith({
+      parser: { parse: async () => [DRAFT] },
+      quotaCheck: async () => ({ ok: false, retryAfter: 5 }),
+      recordDisclosure: async () => {
+        recorded++;
+      },
+    });
+    expect((await post(app, { text: "x" })).status).toBe(429);
+    expect(recorded).toBe(0); // 쿼터 게이트가 앞 → 기록 안 함(전송 없음)
+  });
 });
 
 // 이미지(비전) 파싱 라우트 — 바이너리 바디 plain route. 유효 매직바이트 + 최소 크기(≥64) 통과용(80바이트).
@@ -687,5 +757,20 @@ describe("usage-imports parse-image 라우트", () => {
     });
     expect((await postImage(app)).status).toBe(503);
     expect(refunds).toBe(1); // busy는 LLM 미호출 → 환불
+  });
+
+  it("PB-1(image) — parse-image fail-closed(recordDisclosure throw → 파서 미도달)", async () => {
+    let parsed = 0;
+    const app = appWith({
+      parser: imageParserWith(async () => {
+        parsed++;
+        return [DRAFT];
+      }),
+      recordDisclosure: async () => {
+        throw new Error("db down");
+      },
+    });
+    expect((await postImage(app)).status).toBe(500);
+    expect(parsed).toBe(0);
   });
 });
