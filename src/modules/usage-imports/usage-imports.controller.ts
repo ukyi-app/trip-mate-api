@@ -145,7 +145,14 @@ async function runParsePipeline(
   }
   // PB-1: 외부 LLM 전송 전 llm_disclosure 동의 기록 — fail-closed(기록 실패 시 throw 전파 → 전송 안 함).
   // 쿼터 뒤·run() 앞에 둬 "곧 전송한다"에 최밀착. 쿼터 차단·validation 실패 시엔 도달 안 함(전송 없음).
-  await deps.recordDisclosure(userId, args.ip !== undefined ? { ip: args.ip } : {});
+  // 기록 실패도 LLM 미호출이므로 쿼터 환불(busy와 동일 — consents 장애로 공유 trip 쿼터가 고갈되지 않게).
+  try {
+    await deps.recordDisclosure(userId, args.ip !== undefined ? { ip: args.ip } : {});
+  } catch (e) {
+    await deps.quotaRefund?.(userId, tripId).catch(() => {}); // best-effort — 환불 실패가 원 에러를 가리지 않게
+    deps.metrics?.recordRequest("error"); // 대시보드에서 사라지지 않게(다른 outcome과 일관)
+    throw e;
+  }
   // parse가 동시성을 자기보호(busy면 UnavailableError). 슬롯은 parse 실행 동안만 → context·quota가 앞이라
   // I/O 동안 슬롯을 잡지 않는다. busy는 LLM 미호출이므로 쿼터 환불(공유 trip 쿼터 고갈 방지).
   const startedAt = deps.now?.() ?? new Date();

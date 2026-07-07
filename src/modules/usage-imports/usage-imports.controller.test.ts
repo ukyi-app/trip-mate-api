@@ -442,6 +442,22 @@ describe("usage-imports parse 라우트", () => {
     expect(parsed).toBe(0);
   });
 
+  it("PB-1 fail-closed — recordDisclosure 실패 시 쿼터 환불(LLM 미호출 — 공유 trip 쿼터 보호)", async () => {
+    let refunds = 0;
+    const app = appWith({
+      parser: { parse: async () => [DRAFT] },
+      quotaCheck: async () => ({ ok: true }),
+      quotaRefund: async () => {
+        refunds++;
+      },
+      recordDisclosure: async () => {
+        throw new Error("consents db down");
+      },
+    });
+    expect((await post(app, { text: "x" })).status).toBe(500);
+    expect(refunds).toBe(1); // 기록 실패도 LLM 미호출 → busy와 동일하게 환불
+  });
+
   it("PB-1 — cf-connecting-ip를 recordDisclosure ip로 전달", async () => {
     let seenIp: string | undefined;
     const app = appWith({
