@@ -14,6 +14,7 @@ function docApp() {
     memberLookup: async () => null,
     idempotencyStore: null,
     expenseDrafts: {} as never,
+    consentService: {} as never,
     webOrigins: ["http://localhost:5173"],
   });
 }
