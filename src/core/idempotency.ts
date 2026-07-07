@@ -12,7 +12,6 @@ export interface IdempotencyStore {
   lockLeaseSeconds?: number; // 처리중 lock 임대(default 5m) — 크래시 시 짧게 자가해제(24h 포이즈닝 방지)
 }
 const MAX_KEY_LEN = 200; // nanoid ~21자. 과대 키가 text PK(btree ~2704B)를 넘겨 500 나는 것 차단.
-const hashBody = (raw: string) => createHash("sha256").update(raw).digest("hex");
 
 // 서버 전용 멱등 네임스페이스 — 초안 confirm이 지출 생성에 쓰는 `draft:<id>` 키가 여기 속한다.
 // 클라가 이 프리픽스로 지출을 선점(같은 키로 무관 지출 생성)해 confirm이 엉뚱한 지출에 링크되는 것을 차단.
@@ -37,8 +36,21 @@ export function idempotency(store: IdempotencyStore) {
         prefix: RESERVED_IDEMPOTENCY_PREFIX,
       });
     const user = c.get("user");
-    const raw = await c.req.raw.clone().text(); // clone → 핸들러의 valid("json") 보존
-    const reqHash = hashBody(raw);
+    // 정규화한 쿼리(키 정렬)로 파라미터 순서·인코딩만 다른 동일 요청은 같은 해시로 리플레이(리뷰).
+    const params = new URL(c.req.raw.url).searchParams;
+    params.sort();
+    const search = params.toString();
+    // **하위호환**: 쿼리 없는 라우트(기존 지출·정산·텍스트파싱)는 **기존 body-only 텍스트 해시 유지** —
+    // 배포 전 기록된 idempotency 행과 해시가 일치해 재시도가 409 대신 리플레이된다(리뷰 M). JSON은 UTF-8이라 무손실.
+    // 쿼리 있는 라우트(parse-image, 신규)만 새 포맷: 쿼리+**바이트 정확** 해시(바이너리 바디 lossy·쿼리 시맨틱 반영).
+    let reqHash: string;
+    if (search === "") {
+      const raw = await c.req.raw.clone().text();
+      reqHash = createHash("sha256").update(raw).digest("hex");
+    } else {
+      const rawBytes = new Uint8Array(await c.req.raw.clone().arrayBuffer());
+      reqHash = createHash("sha256").update(search).update("\n").update(rawBytes).digest("hex");
+    }
     // c.req.path = 실 tripId 포함(/v1/trips/<uuid>/expenses) → 교차-trip 격리(finding #4 pass1)
     const key = `${user.id}:${c.req.path}:${clientKey}`;
 

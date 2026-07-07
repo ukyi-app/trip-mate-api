@@ -72,3 +72,20 @@ expense_drafts 구현 후 codex 적대적 리뷰를 다회 반복하며 confirm 
 2. **parse 멱등 opt-in(GG)**: Idempotency-Key는 opt-in(지출 생성과 동일 관례). 없으면 재시도가 중복 초안 배치를 만들 수 있음. 활성화 시 FE 계약에서 키 필수화 또는 서버 파생 키(user+trip+text hash)를 확정.
 3. **import_key body-safety(EE)**: 데이터-레벨 replay 마커는 body-hash·TTL 미보유. prod에선 미들웨어(24h TTL·body-hash·single-flight)가 커버. 24h 초과 키 재사용(클라 계약 위반)은 stale 반환 가능 — request-hash 컬럼은 활성화 시 FE 키 계약과 함께 확정.
 4. **동시 confirm 미세 경합**: `findExpenseIdByKey` 증명과 revert 사이의 극소 창(모든 시도 AppError + 동시 생성이 그 창에서 커밋)은 잔존하나 게이트+동일-소유자-이중확정 전제로 무시 가능.
+
+## 슬라이스 4 — 이미지 입력(codex vision) 구현·리뷰 잔여(2026-07-07)
+
+카드 앱 스크린샷·영수증 이미지 → 지출 초안. codex `exec -i`(비전) 주 엔진, claude vision content block은 escape hatch. **닫은 이슈(코드+테스트, codex 리뷰 7R):**
+
+- `UsageParserPort.parseImage?(input, image)` 선택 메서드. `CodexUsageParser`가 텍스트·이미지 동시성 슬롯 공유(`runGuarded`, MAX_CONCURRENT=1). `ClaudeUsageParser.parseImage`는 vision(jpeg/png/gif/webp만; heic/heif는 UpstreamError로 거부 — codex escape hatch).
+- **plain route** `POST /v1/trips/{tripId}/usage-imports/parse-image`(바이너리 바디, ④ 영수증 라우트와 동일 패턴 → openapi 미포함, FE 직접 호출). disclosure_accepted·reference_date는 **쿼리**. 공용 `runParsePipeline`(쿼터→parse→clamp→persist)을 텍스트 라우트와 공유.
+- **입력 검증(쿼터/LLM 소모 전)**: 타입 allowlist=두 엔진 교집합 **jpeg/png/webp**(415)·**tripId uuid**(422, member DB조회 전)·**Content-Length 선검사**(422, member 앞)·**bodyLimit 스트림 캡**(chunked/무-CL 과대바디를 idempotency 버퍼링 전에 maxSize에서 중단)·**매직바이트 시그니처**(junk를 image/*로 위장한 쿼터 남용 차단, 415).
+- **멱등**: parse-image도 Idempotency-Key→import_key(크래시-갭 replay). 미들웨어 지문에 **쿼리 정규화(키 정렬)+바이트 정확 해시**(바이너리 바디 lossy 방지·쿼리 순서 무관 리플레이·다른 reference_date는 409).
+
+**잔여(설계 결정 — PB-1 게이트 하 prod 미노출):**
+1. **이미지 원본 저장(source_object_key 링크) 분리**: 원본을 ④ files에 저장해 초안에 링크하는 것은 **원자적 객체-DB 링크**(빈 파싱·멱등 replay·부분 실패 시 고아 민감파일 방지)가 별도 설계 과제라 이 슬라이스에서 제외. 현재 이미지 초안은 `source=image`·`source_object_key=null`(파싱은 완전 동작). 컬럼은 존치. 활성화 시 원자적 저장(예: persist가 insert/replay 신호 반환 후 저장·링크, 또는 배치 마커 테이블) 확정.
+2. **claude heic/heif 미지원**: 두 엔진 교집합으로 허용을 좁혀 회피(카드 스크린샷은 png/jpg 대다수). heic 필요 시 codex 전용 경로로 확장.
+
+### 슬라이스 4 — 추가 잔여(codex 리뷰 10R)
+3. **이미지 메타데이터 스트리핑(프라이버시)**: 현재 어댑터는 업로드 raw 바이트를 그대로 LLM(codex `-i`/claude base64)에 전달 → JPEG EXIF/GPS·기기 메타데이터가 외부 LLM에 노출될 수 있음(텍스트 경로의 PII redaction과 대칭 하드닝 필요). 서버측 디코드·재인코딩(메타 제거)은 이미지 라이브러리 의존이라 **활성화 시 고지/동의 UI(PB-1)와 함께 확정**(고지 UI가 "이미지+메타를 LLM에 전송" 경계를 정의). 게이트 하 prod 미노출이므로 유예.
+4. **parse import_key 프리픽스 하위호환**: `import_key`를 `${source}:<key>`로 네임스페이스(교차 route 충돌 방지). parse 엔드포인트는 PB-1 게이트로 **prod 미가동 → 레거시 import_key 행 부재** → 하위호환 이슈 비적용. (라이브 지출·정산 idempotency는 빈-쿼리 시 기존 body-only 해시 유지로 별도 보존.)
