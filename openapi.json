@@ -1116,13 +1116,13 @@
           "created_at"
         ]
       },
-      "UsageParseResponse": {
+      "ExpenseDraftList": {
         "type": "object",
         "properties": {
           "drafts": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/UsageDraft"
+              "$ref": "#/components/schemas/ExpenseDraft"
             }
           }
         },
@@ -1130,7 +1130,106 @@
           "drafts"
         ]
       },
-      "UsageDraft": {
+      "ExpenseDraft": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "local_amount": {
+            "type": "string",
+            "maxLength": 19,
+            "pattern": "^\\d+$"
+          },
+          "local_currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "spent_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "food",
+              "cafe_snack",
+              "transport",
+              "lodging",
+              "shopping",
+              "sightseeing",
+              "convenience",
+              "other"
+            ]
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": [
+              "cash",
+              "card",
+              "transit_card",
+              "easy_pay",
+              "other"
+            ]
+          },
+          "card_billed_amount": {
+            "type": "string",
+            "maxLength": 19,
+            "pattern": "^\\d+$"
+          },
+          "card_billed_currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "text",
+              "image"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "confirmed",
+              "discarded"
+            ]
+          },
+          "confirmed_expense_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "title",
+          "local_amount",
+          "local_currency",
+          "spent_at",
+          "confidence",
+          "id",
+          "source",
+          "status",
+          "confirmed_expense_id"
+        ]
+      },
+      "UpdateExpenseDraft": {
         "type": "object",
         "properties": {
           "title": {
@@ -1190,13 +1289,108 @@
             "minimum": 0,
             "maximum": 1
           }
+        }
+      },
+      "ConfirmDraftResult": {
+        "type": "object",
+        "properties": {
+          "draft_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expense_id": {
+            "type": "string",
+            "format": "uuid"
+          }
         },
         "required": [
-          "title",
-          "local_amount",
-          "local_currency",
-          "spent_at",
-          "confidence"
+          "draft_id",
+          "expense_id"
+        ]
+      },
+      "ConfirmExpenseDraft": {
+        "type": "object",
+        "properties": {
+          "paid_by_member_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "participant_member_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "food",
+              "cafe_snack",
+              "transport",
+              "lodging",
+              "shopping",
+              "sightseeing",
+              "convenience",
+              "other"
+            ]
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": [
+              "cash",
+              "card",
+              "transit_card",
+              "easy_pay",
+              "other"
+            ]
+          },
+          "expense_settlement_state": {
+            "type": "string",
+            "enum": [
+              "included",
+              "personal",
+              "record_only"
+            ]
+          },
+          "memo": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "manualRate": {
+            "type": "string",
+            "maxLength": 24,
+            "pattern": "^\\d+(\\.\\d+)?$"
+          },
+          "card_billed_settlement_amount": {
+            "type": "string",
+            "maxLength": 19,
+            "pattern": "^\\d+$"
+          }
+        },
+        "required": [
+          "paid_by_member_id",
+          "participant_member_ids"
+        ]
+      },
+      "DiscardDraftResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "discarded": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "discarded"
         ]
       },
       "UsageParseRequest": {
@@ -3143,6 +3337,299 @@
         }
       }
     },
+    "/v1/trips/{tripId}/expense-drafts": {
+      "get": {
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "tripId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseDraftList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "404 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trips/{tripId}/expense-drafts/{draftId}": {
+      "patch": {
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "tripId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "draftId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateExpenseDraft"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenseDraft"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "404 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "409 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "422 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "tripId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "draftId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "discarded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscardDraftResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "404 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trips/{tripId}/expense-drafts/{draftId}/confirm": {
+      "post": {
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "tripId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "draftId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmExpenseDraft"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "confirmed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmDraftResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "404 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "409 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "422 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/trips/{tripId}/usage-imports/parse": {
       "post": {
         "security": [
@@ -3159,6 +3646,18 @@
             "required": true,
             "name": "tripId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "재시도 안전 멱등 키(≤200자). 동일 키 재요청은 저장된 응답을 replay한다.",
+              "example": "3f1c8b2e-9a44-4c1e-8b0e-2d5f7c6a1b90"
+            },
+            "required": false,
+            "description": "재시도 안전 멱등 키(≤200자). 동일 키 재요청은 저장된 응답을 replay한다.",
+            "name": "Idempotency-Key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -3177,7 +3676,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UsageParseResponse"
+                  "$ref": "#/components/schemas/ExpenseDraftList"
                 }
               }
             }

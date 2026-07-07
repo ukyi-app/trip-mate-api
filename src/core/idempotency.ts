@@ -14,6 +14,10 @@ export interface IdempotencyStore {
 const MAX_KEY_LEN = 200; // nanoid ~21자. 과대 키가 text PK(btree ~2704B)를 넘겨 500 나는 것 차단.
 const hashBody = (raw: string) => createHash("sha256").update(raw).digest("hex");
 
+// 서버 전용 멱등 네임스페이스 — 초안 confirm이 지출 생성에 쓰는 `draft:<id>` 키가 여기 속한다.
+// 클라가 이 프리픽스로 지출을 선점(같은 키로 무관 지출 생성)해 confirm이 엉뚱한 지출에 링크되는 것을 차단.
+export const RESERVED_IDEMPOTENCY_PREFIX = "draft:";
+
 /** §5 멱등. scope=(principal + 실 요청 경로 + client key). requireAuth 뒤 적용. 헤더 없으면 no-op.
  *  INSERT ON CONFLICT DO NOTHING으로 single-flight, status NULL=처리중·정수=완료(replay).
  *  lock은 짧은 임대(lease)로 INSERT → 완료 시 보존 TTL로 연장. throw/non-2xx면 lock 삭제(재시도 허용).
@@ -27,6 +31,11 @@ export function idempotency(store: IdempotencyStore) {
     if (!clientKey) return next();
     if (clientKey.length > MAX_KEY_LEN)
       throw new ValidationError("idempotency key too long", { max: MAX_KEY_LEN });
+    // 서버 전용 네임스페이스는 클라가 못 쓴다(초안 confirm 키 선점→오링크 방지).
+    if (clientKey.startsWith(RESERVED_IDEMPOTENCY_PREFIX))
+      throw new ValidationError("reserved idempotency key prefix", {
+        prefix: RESERVED_IDEMPOTENCY_PREFIX,
+      });
     const user = c.get("user");
     const raw = await c.req.raw.clone().text(); // clone → 핸들러의 valid("json") 보존
     const reqHash = hashBody(raw);

@@ -4,10 +4,23 @@ import type { MembershipLookup, SessionResolver } from "../../core/guards.ts";
 import { createApp } from "../../core/openapi.ts";
 import { createUsageMetrics } from "../../core/metrics.ts";
 import { registerUsageImportRoutes } from "./usage-imports.controller.ts";
+import type { PersistDrafts } from "./usage-imports.controller.ts";
+import type { UsageDraft } from "./usage-imports.schema.ts";
 import type { UsageParseInput, UsageParserPort } from "./usage-parser.port.ts";
 
 // zod v4 uuid()는 RFC 버전 비트까지 검증 — all-zeros류는 422가 나므로 실제 v4 형태 사용
 const TRIP_ID = "a3bb189e-8bf9-4c8b-9f36-6c5c8b2a1b90";
+const mkId = (i: number) => `a3bb189e-8bf9-4c8b-9f36-6c5c8b2a1b9${i}`; // 결정적 v4 uuid(초안 id)
+
+// 기본 persist fake — 저장된 것처럼 id·메타를 부여해 ExpenseDraft 형태 반환.
+const defaultPersist: PersistDrafts = async (_tripId, _memberId, list, source) =>
+  list.map((d, i) => ({
+    ...d,
+    id: mkId(i),
+    source,
+    status: "pending" as const,
+    confirmed_expense_id: null,
+  }));
 
 type TripCtx = { timezone: string; start_date: string; end_date: string };
 function appWith(
@@ -22,6 +35,7 @@ function appWith(
       tripId: string,
     ) => Promise<{ ok: true } | { ok: false; retryAfter: number }>;
     quotaRefund?: (userId: string, tripId: string) => Promise<void>;
+    persistDrafts?: PersistDrafts;
   } = {},
 ) {
   const app = createApp();
@@ -32,6 +46,7 @@ function appWith(
   registerUsageImportRoutes(app, {
     resolver,
     memberLookup,
+    persistDrafts: opts.persistDrafts ?? defaultPersist,
     ...(opts.parser ? { parser: opts.parser } : {}),
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.tripContext ? { tripContext: opts.tripContext } : {}),
@@ -60,7 +75,7 @@ function post(app: ReturnType<typeof appWith>, body: Record<string, unknown>) {
 }
 
 describe("usage-imports parse 라우트", () => {
-  it("200 — 초안 배열 반환, 포트에 text·referenceDate(요청값) 전달", async () => {
+  it("200 — 저장된 초안(id·status 포함) 반환, 포트에 text·referenceDate(요청값) 전달", async () => {
     const calls: UsageParseInput[] = [];
     const app = appWith({
       parser: {
@@ -72,8 +87,59 @@ describe("usage-imports parse 라우트", () => {
     });
     const res = await post(app, { text: "07/05 스타벅스 6,500원", reference_date: "2026-07-06" });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ drafts: [DRAFT] });
+    const body = (await res.json()) as { drafts: Record<string, unknown>[] };
+    expect(body.drafts).toHaveLength(1);
+    expect(body.drafts[0]).toMatchObject({ ...DRAFT, source: "text", status: "pending" });
+    expect(body.drafts[0]!.id).toBeTruthy(); // 저장 후 부여된 초안 id
     expect(calls).toEqual([{ text: "07/05 스타벅스 6,500원", referenceDate: "2026-07-06" }]);
+  });
+
+  it("파싱 초안을 persistDrafts로 저장 — memberId·source·(후검증)초안 전달", async () => {
+    const saved: { tripId: string; memberId: string; drafts: UsageDraft[]; source: string }[] = [];
+    const app = appWith({
+      parser: { parse: async () => [DRAFT] },
+      persistDrafts: async (tripId, memberId, drafts, source) => {
+        saved.push({ tripId, memberId, drafts, source });
+        return drafts.map((d, i) => ({
+          ...d,
+          id: mkId(i),
+          source,
+          status: "pending" as const,
+          confirmed_expense_id: null,
+        }));
+      },
+    });
+    const res = await post(app, { text: "07/05 스타벅스 6,500원" });
+    expect(res.status).toBe(200);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.tripId).toBe(TRIP_ID);
+    expect(saved[0]!.memberId).toBe("m1"); // 미들웨어 membership.id
+    expect(saved[0]!.source).toBe("text");
+    expect(saved[0]!.drafts).toEqual([DRAFT]);
+  });
+
+  it("Idempotency-Key 헤더 → persistDrafts에 importKey로 전달(크래시-갭 replay 배선)", async () => {
+    let importKey: string | undefined = "unset";
+    const app = appWith({
+      parser: { parse: async () => [DRAFT] },
+      persistDrafts: async (_t, _m, drafts, source, key) => {
+        importKey = key;
+        return drafts.map((d, i) => ({
+          ...d,
+          id: mkId(i),
+          source,
+          status: "pending" as const,
+          confirmed_expense_id: null,
+        }));
+      },
+    });
+    const res = await app.request(`/trips/${TRIP_ID}/usage-imports/parse`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": "imp-xyz" },
+      body: JSON.stringify({ disclosure_accepted: true, text: "x" }),
+    });
+    expect(res.status).toBe(200);
+    expect(importKey).toBe("imp-xyz");
   });
 
   it("tripContext 주입 → 파서에 여행 timezone·기간 전달 + 기준일은 여행 timezone 기준", async () => {

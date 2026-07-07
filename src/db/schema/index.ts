@@ -4,6 +4,7 @@ export * from "./auth-schema.ts";
 export * from "./trips.ts";
 export * from "./members.ts";
 export * from "./expenses.ts";
+export * from "./expense-drafts.ts";
 export * from "./settlements.ts";
 export * from "./relations.ts";
 export * from "./fx.ts";

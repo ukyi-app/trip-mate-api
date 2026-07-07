@@ -86,6 +86,7 @@ describe("buildV1App rate-limit 배선", () => {
       nameOf: async () => "",
       memberLookup: async () => null,
       idempotencyStore: null,
+      expenseDrafts: {} as never,
       webOrigins: ["https://trip-mate.ukyi.app"],
       rateLimit: rateLimit(redis, { scope: "wire", max: 1, windowSec: 60 }),
     });

@@ -32,6 +32,7 @@ function v1For(userId: string) {
     nameOf: async () => "테스터",
     memberLookup: (t, u) => new DrizzleMemberRepo(ctx.db).findMembership(t, u),
     idempotencyStore: null,
+    expenseDrafts: {} as never,
     webOrigins: [ORIGIN],
   });
 }
