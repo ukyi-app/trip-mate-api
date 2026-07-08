@@ -67,6 +67,17 @@ describe("redactSensitive (순수)", () => {
     expect(out).toContain("6,500원");
     expect(out).toContain("07/05 12:30");
   });
+  it("승인번호(라벨 뒤 숫자)는 제거하되 거래 금액·'승인' 표기는 보존한다(§22.4/§26.3)", () => {
+    const out = redactSensitive("07/05 스타벅스 6,500원 승인 승인번호 30012345");
+    expect(out).not.toContain("30012345"); // 승인번호 마스킹
+    expect(out).toContain("6,500원"); // 거래 금액 보존
+    expect(out).toContain("스타벅스"); // 상호명 보존
+    // 라벨 변형: '승인No', '승인 번호:'
+    expect(redactSensitive("승인No 1234567")).not.toContain("1234567");
+    expect(redactSensitive("승인 번호: 87654321")).not.toContain("87654321");
+    // '승인 6,500원'처럼 라벨 없는 '승인'은 금액을 건드리지 않는다(취소 페어링 규칙에 필요).
+    expect(redactSensitive("스타벅스 6,500원 승인")).toContain("6,500원");
+  });
 });
 
 describe("buildUserPrompt (순수)", () => {
