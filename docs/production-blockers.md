@@ -2,22 +2,21 @@
 
 공개 프로덕션(실사용자) 활성화 전에 **반드시** 해소해야 하는 항목. 우선순위 P-1이 가장 높다(미해소 시 기능/서비스 활성 금지).
 
+> **현재 미해소 P-1 없음** — PB-1 해소(2026-07-08, PR #26).
+
 ## P-1
 
-### PB-1. 서버측 동의(약관·개인정보) 캡처 부재
+### PB-1. 서버측 동의(약관·개인정보) 캡처 — ✅ 해소
 
-- **상태**: 미구현(유예). 결정 — 지금은 구현하지 않고 **P-1 프로덕션 블로커로 유예**한다.
+- **상태**: ✅ **해소(2026-07-08, PR #26 squash→main `5e60aba`)**. 이력: ~2026-07-06 P-1 블로커로 유예 → 2026-07-07 설계·구현(TDD) → 2026-07-08 머지.
 - **요구(PRD §42.2)**: 이용약관·개인정보 처리방침 제공, **가입(최초 Google 로그인)·초대 수락 시점에 수집·이용 동의를 서버측에 기록**, 수집 항목별 목적·보유기간·파기 시점 고지. 한국 PIPA 주 대상, GDPR 적용 가능성 고려(§42.1).
-- **현재 갭**:
-  - 가입/초대수락 동의를 **영속 기록하는 서버측 저장소가 없음**(누가·언제·약관 버전에 동의했는지 감사 불가).
-  - 사용내역 파싱의 `disclosure_accepted: true`(외부 LLM 전송 고지 동의)는 요청에서 **검증만 하고 기록하지 않음** — 동의 사실이 남지 않는다(이 블로커에 롤업).
-- **해소 시 필요(구현 시 설계 스코프)**:
-  - `user_consents`(user_id, consent_type[tos|privacy|llm_disclosure], document_version, accepted_at, source[signup|invite_accept|usage_parse], ip?) 류 영속 테이블.
-  - 약관/처리방침 **버전 관리**(문서 버전 문자열) — 버전 변경 시 재동의.
-  - 가입/초대수락 훅에서 동의 기록(Better Auth 플로우 배선), 사용내역 파싱은 `disclosure_accepted` 수신 시 `llm_disclosure` 동의 기록.
-  - 파기/열람 요청 처리 경로(§43 보존·삭제 규칙과 연계).
-- **활성화 게이트 연동**: [[usage-import-parse-design]] §외부 LLM 트러스트 바운더리의 "prod 활성화" 및 §배포의 codex/claude 엔진 활성은 **이 블로커(PB-1) 해소를 전제**로 한다. 사용내역 파싱을 프로덕션에서 켜기 전에 최소한 `llm_disclosure` 동의 기록이 있어야 한다.
-- **왜 유예가 정답(현재)**: 동의 캡처는 약관/처리방침 문서 확정·버전 정책·삭제 경로까지 얽힌 별도 슬라이스이며, 사용내역 파싱 기능 자체는 config-off(503)로 프로덕션에 노출되지 않는다. 기능을 켜는 시점 = 이 블로커를 해소하는 시점.
+- **해소 내역**:
+  - `user_consents`(user_id·consent_type[tos|privacy|llm_disclosure]·document_version·source[signup|invite_accept|usage_parse|settings]·accepted_at·ip?, `uq_user_consent` 멱등 unique, FK cascade, 마이그레이션 0007) 영속 저장.
+  - `POST/GET /v1/consents`(auth): tos+privacy batch 수락 · 버전 ≠ 서버 current면 **409 stale** · 미동의 조회. **버전은 서버 소유**(`CONSENT_VERSIONS`, 실 문서 확정 시 갱신).
+  - 사용내역 파싱은 `disclosure_accepted=true` 수신 시 `llm_disclosure` 동의를 **외부 LLM 전송 직전 fail-closed로 기록**(source=usage_parse; 기록 실패 시 전송 중단 = "전송분엔 동의 기록 존재").
+  - FE 통합 계약: `docs/contract-consumption.md` §6.
+- **이 슬라이스 밖(별도·미구현)**: 강제는 **FE 게이트**(백엔드 403 게이트 없음, 기록만) · 실 약관/처리방침 **문서 내용**(owner/법무) · **파기·열람 요청 처리 경로**(§43 보존·삭제, 별도 슬라이스) · 제3자(피초대자) 통지·거절/삭제(§42.4, 초대 UX).
+- **활성화 게이트 연동**: PB-1 해소로 "최소 `llm_disclosure` 동의 기록" 전제 **충족**. 사용내역 파싱 prod 활성화의 남은 게이트는 **FE 고지 UI 배포 → codex 엔진 봉인(`USAGE_PARSER_ENGINE=codex`+`USAGE_PARSER_CODEX_AUTH`) → `replicas:1` 무중첩 롤아웃**([[usage-import-parse-design]] §배포). 전부 owner 작업.
 
 ## 참고
 
