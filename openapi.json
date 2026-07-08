@@ -1393,6 +1393,122 @@
           "discarded"
         ]
       },
+      "PostConsentsResponse": {
+        "type": "object",
+        "properties": {
+          "recorded": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsentRecord"
+            }
+          }
+        },
+        "required": [
+          "recorded"
+        ]
+      },
+      "ConsentRecord": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "tos",
+              "privacy",
+              "llm_disclosure"
+            ]
+          },
+          "version": {
+            "type": "string"
+          },
+          "accepted_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "version",
+          "accepted_at"
+        ]
+      },
+      "PostConsentsRequest": {
+        "type": "object",
+        "properties": {
+          "consents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "tos",
+                    "privacy",
+                    "llm_disclosure"
+                  ]
+                },
+                "version": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                }
+              },
+              "required": [
+                "type",
+                "version"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 10
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "signup",
+              "invite_accept",
+              "settings"
+            ]
+          }
+        },
+        "required": [
+          "consents",
+          "source"
+        ]
+      },
+      "GetConsentsResponse": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": "object",
+            "properties": {
+              "tos": {
+                "type": "string"
+              },
+              "privacy": {
+                "type": "string"
+              },
+              "llm_disclosure": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tos",
+              "privacy",
+              "llm_disclosure"
+            ]
+          },
+          "accepted": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsentRecord"
+            }
+          }
+        },
+        "required": [
+          "current",
+          "accepted"
+        ]
+      },
       "UsageParseRequest": {
         "type": "object",
         "properties": {
@@ -3619,6 +3735,96 @@
           },
           "422": {
             "description": "422 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/consents": {
+      "post": {
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostConsentsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostConsentsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "409 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "422 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetConsentsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403 problem+json",
             "content": {
               "application/problem+json": {
                 "schema": {

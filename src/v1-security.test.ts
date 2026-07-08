@@ -33,6 +33,7 @@ function v1For(userId: string) {
     memberLookup: (t, u) => new DrizzleMemberRepo(ctx.db).findMembership(t, u),
     idempotencyStore: null,
     expenseDrafts: {} as never,
+    consentService: {} as never,
     webOrigins: [ORIGIN],
   });
 }

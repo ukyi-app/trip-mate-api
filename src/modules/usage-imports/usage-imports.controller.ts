@@ -11,6 +11,7 @@ import {
 import { requireAuth, requireTripMember } from "../../core/guards.ts";
 import type { MembershipLookup, SessionResolver } from "../../core/guards.ts";
 import { errorResponses, idempotencyKeyHeader } from "../../core/http.ts";
+import { clientIp } from "../../core/rate-limit.ts";
 import { idempotency, type IdempotencyStore } from "../../core/idempotency.ts";
 import type { UsageMetrics } from "../../core/metrics.ts";
 import { expenseDraftListSchema } from "../expense-drafts/expense-drafts.schema.ts";
@@ -45,6 +46,7 @@ interface Deps {
   quotaRefund?: ParserQuotaRefund; // 슬롯 예약 실패(busy) 시 쿼터 환불
   metrics?: UsageMetrics; // 파싱 요청·지연 메트릭(없으면 미기록)
   persistDrafts: PersistDrafts; // 파싱 초안 저장(지속형) — id 포함 반환. parser와 함께 배선
+  recordDisclosure: (userId: string, opts?: { ip?: string }) => Promise<void>; // PB-1: LLM 전송 전 llm_disclosure 기록(fail-closed, 필수 dep)
   idempotencyStore?: IdempotencyStore | null; // Idempotency-Key 재시도 dedup(없으면 미적용). parse가 저장을 하므로 필요
   maxImageBytes?: number; // 이미지 업로드 상한(기본 8MB)
   now?: () => Date; // 테스트 결정성 — reference_date 기본값(서버 오늘)
@@ -128,6 +130,7 @@ async function runParsePipeline(
     run: () => Promise<UsageDraft[]>;
     source: "text" | "image";
     importKey?: string;
+    ip?: string;
   },
 ): Promise<ExpenseDraftResponse[]> {
   const { userId, tripId, memberId, trip, run, source } = args;
@@ -139,6 +142,16 @@ async function runParsePipeline(
         retryAfterSeconds: q.retryAfter,
       });
     }
+  }
+  // PB-1: 외부 LLM 전송 전 llm_disclosure 동의 기록 — fail-closed(기록 실패 시 throw 전파 → 전송 안 함).
+  // 쿼터 뒤·run() 앞에 둬 "곧 전송한다"에 최밀착. 쿼터 차단·validation 실패 시엔 도달 안 함(전송 없음).
+  // 기록 실패도 LLM 미호출이므로 쿼터 환불(busy와 동일 — consents 장애로 공유 trip 쿼터가 고갈되지 않게).
+  try {
+    await deps.recordDisclosure(userId, args.ip !== undefined ? { ip: args.ip } : {});
+  } catch (e) {
+    await deps.quotaRefund?.(userId, tripId).catch(() => {}); // best-effort — 환불 실패가 원 에러를 가리지 않게
+    deps.metrics?.recordRequest("error"); // 대시보드에서 사라지지 않게(다른 outcome과 일관)
+    throw e;
   }
   // parse가 동시성을 자기보호(busy면 UnavailableError). 슬롯은 parse 실행 동안만 → context·quota가 앞이라
   // I/O 동안 슬롯을 잡지 않는다. busy는 LLM 미호출이므로 쿼터 환불(공유 trip 쿼터 고갈 방지).
@@ -210,6 +223,7 @@ export function registerUsageImportRoutes(app: OpenAPIHono, deps: Deps): void {
         throw new UnavailableError("usage parsing not configured");
       }
       const userId = c.get("user").id;
+      const ip = clientIp(c.req.raw.headers) || undefined;
       const tripId = c.req.valid("param").tripId;
       const { text, reference_date } = c.req.valid("json");
       // context·quota는 슬롯 없이 먼저 — 느린 DB/Redis가 파서 슬롯을 잡아 false busy를 만들지 않게(리뷰).
@@ -224,6 +238,7 @@ export function registerUsageImportRoutes(app: OpenAPIHono, deps: Deps): void {
         trip,
         source: "text",
         ...(idemKey ? { importKey: idemKey } : {}),
+        ...(ip ? { ip } : {}),
         run: () =>
           parser.parse({
             text,
@@ -293,6 +308,7 @@ export function registerUsageImportRoutes(app: OpenAPIHono, deps: Deps): void {
       if (refQ !== undefined && !z.iso.date().safeParse(refQ).success)
         throw new ValidationError("invalid reference_date", { reference_date: refQ });
       const userId = c.get("user").id;
+      const ip = clientIp(c.req.raw.headers) || undefined;
       const tripId = c.req.param("tripId")!;
       const trip = deps.tripContext ? await deps.tripContext(tripId) : null;
       const referenceDate =
@@ -308,6 +324,7 @@ export function registerUsageImportRoutes(app: OpenAPIHono, deps: Deps): void {
         trip,
         source: "image",
         ...(idemKey ? { importKey: idemKey } : {}),
+        ...(ip ? { ip } : {}),
         run: () =>
           parser.parseImage!(
             {

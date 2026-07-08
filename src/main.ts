@@ -37,6 +37,8 @@ import { join } from "node:path";
 import { ClaudeUsageParser } from "./modules/usage-imports/usage-parser.claude.ts";
 import { DrizzleDraftRepo } from "./modules/expense-drafts/expense-drafts.repo.ts";
 import { ExpenseDraftsService } from "./modules/expense-drafts/expense-drafts.service.ts";
+import { DrizzleConsentRepo } from "./modules/consents/consents.repo.ts";
+import { ConsentService } from "./modules/consents/consents.service.ts";
 import {
   CodexUsageParser,
   assertCodexToolsDisabled,
@@ -120,6 +122,8 @@ const expensesService = new ExpensesService(core.db, new DrizzleExpenseRepo(core
 const settlementsService = new SettlementsService(core.db, new DrizzleSettlementRepo(core.db));
 // 지속형 초안 — 파싱 결과 저장·확정. 확정은 기존 ExpensesService.createExpense 재사용(멱등키 draft:<id>).
 const expenseDrafts = new ExpenseDraftsService(new DrizzleDraftRepo(core.db), expensesService);
+// 서버측 동의(PB-1) — DB만 있으면 항상 배선(parse recordDisclosure fail-closed의 전제).
+const consentService = new ConsentService(new DrizzleConsentRepo(core.db));
 const mailer = createMailer({
   from: core.config.MAIL_FROM,
   onError: (e) => core.logger.warn({ err: e }, "invite email send failed"),
@@ -187,6 +191,7 @@ const v1 = buildV1App({
   usageQuota, // parse 전용 쿼터(check+refund)
   usageMetrics, // 파싱 메트릭
   expenseDrafts, // 지속형 초안(parse 저장·조회·편집·확정·폐기)
+  consentService, // 서버측 동의 기록(PB-1)
 });
 app.route("/", v1); // v1 라우트는 /v1/... (basePath)
 

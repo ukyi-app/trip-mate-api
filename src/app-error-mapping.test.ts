@@ -20,6 +20,7 @@ function rootWithV1() {
     memberLookup: async () => null,
     idempotencyStore: null,
     expenseDrafts: {} as never,
+    consentService: {} as never,
     webOrigins: ["http://localhost:5173"],
   });
   app.route("/", v1);
