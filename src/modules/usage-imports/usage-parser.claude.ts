@@ -39,6 +39,8 @@ const EMAIL_RE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 const NAME_RE = /[가-힣]{1,3}\*{1,2}[가-힣]{0,3}님?/g; // 마스킹 이름(홍*동님·김**님)
 const FULL_NAME_RE = /[가-힣]{1,4}님(?![가-힣])/g; // 비마스킹 이름(홍길동님) — 고객명 컨텍스트 fail-closed
 const BALANCE_RE = /(누적|잔액|한도|가용)\s*(금액)?\s*:?\s*[\d,]+\s*원?/g; // 비거래 금액 — 파싱 불필요·오독 위험
+// 승인번호(거래 식별자) — 라벨 뒤 숫자만 마스킹. 라벨 없는 '승인'·거래 금액은 건드리지 않음(취소 페어링·금액 보존).
+const APPROVAL_RE = /승인\s*(?:번호|no\.?)\s*[:：]?\s*[\d*]{4,}/gi; // §22.4/§26.3 — 파싱 불필요
 
 export function redactSensitive(text: string): string {
   return text
@@ -53,6 +55,7 @@ export function redactSensitive(text: string): string {
     .replace(EMAIL_RE, "[이메일]")
     .replace(NAME_RE, "[이름]")
     .replace(FULL_NAME_RE, "[이름]")
+    .replace(APPROVAL_RE, "[승인번호]")
     .replace(BALANCE_RE, "[제외]");
 }
 
