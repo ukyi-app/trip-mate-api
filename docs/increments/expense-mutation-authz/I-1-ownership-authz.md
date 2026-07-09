@@ -1,11 +1,11 @@
 ---
 id: I-1
 title: 지출 수정/삭제에 소유권 인가 술어 추가 (finalized-lock·version-CAS보다 먼저)
-status: open
+status: done
 blocked-by: [none]
 plan: docs/bugfixes/expense-mutation-authz.md
 created: 2026-07-09
-closed:
+closed: 2026-07-09
 ---
 
 ## What the fix does here
@@ -44,4 +44,8 @@ allow ⇔ actor.role === "admin"
 
 ## Result
 
-(종료 시 기록: commit sha, 결과 한 줄, 이연 항목.)
+- commit `53b5148`. `authorizeMutation`(update/delete 첫 줄, 잠금/버전보다 먼저) + `ExpenseMutationActor`(role 필수)
+  + `repo.findMutationAuthz`(created_by/paid_by만, DTO 미확장). 회귀 6/6 GREEN, characterization 113/113 GREEN,
+  `bun run check` exit 0.
+- 컨덕터 `/code-review`(Spec·Standards 병렬): Spec `created_by` 단독검증 갭 + Standards 소수정 2건 → fix 라운드로 해소
+  (세 disjunct 각각 단독 테스트로 변이내성 확보, 컨트롤러 dedup, repo snake_case 정합). 이연 없음.

@@ -3,7 +3,7 @@ bugfix: expense-mutation-authz
 invariant-class: bugfix
 entry-track: bug
 review-track: full
-pipeline-stage: executing
+pipeline-stage: structure-gate
 issue-tracker: local
 symptom: "여행방의 임의 joined 멤버가, 자신이 작성하지도 결제하지도 않은 남의 지출을 PATCH·DELETE로 수정·삭제할 수 있다(현재 200 성공). admin이거나 작성자이거나 결제자가 아니면 403이어야 한다."
 red-baseline: e469e4b54c37bc5e8fdd4cb584126d5fba67697b
