@@ -3,11 +3,11 @@
   "characterizationCmd": "bun install --frozen-lockfile >/dev/null 2>&1 && bunx vitest run src/modules/expenses src/modules/expense-drafts",
   "flips": [
     {
-      "testId": "tests/regression/expenses-mutation-authz.test.ts :: 비소유자 지출 수정·삭제 인가 (PATCH·DELETE → 403)",
+      "testId": "tests/regression/expenses-mutation-authz.test.ts :: 비인가 actor 지출 PATCH·DELETE → 403 (open·finalized·stale 상태 무관)",
       "symptomToken": "G3-AUTHZ"
     }
   ],
   "scope": ["src/modules/expenses/**"],
-  "red": { "sha": "af587a63bbb937882d2223fb460d299be39060ca" },
+  "red": { "sha": "e469e4b54c37bc5e8fdd4cb584126d5fba67697b" },
   "green": { "sha": null }
 }

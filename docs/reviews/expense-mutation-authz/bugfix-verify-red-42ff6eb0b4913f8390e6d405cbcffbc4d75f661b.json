@@ -1,8 +1,8 @@
 {
   "kind": "bugfix-verify-red",
   "bug": "expense-mutation-authz",
-  "sha": "af587a63bbb937882d2223fb460d299be39060ca",
-  "treeSha": "fdd2b0721e4cc8bf1fe29816c8494133c3826129",
+  "sha": "e469e4b54c37bc5e8fdd4cb584126d5fba67697b",
+  "treeSha": "42ff6eb0b4913f8390e6d405cbcffbc4d75f661b",
   "regression": {
     "exit": 1,
     "failed": true,
