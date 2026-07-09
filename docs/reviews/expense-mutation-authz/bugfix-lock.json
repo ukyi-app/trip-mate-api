@@ -8,6 +8,6 @@
     }
   ],
   "scope": ["src/modules/expenses/**"],
-  "red": { "sha": "e469e4b54c37bc5e8fdd4cb584126d5fba67697b" },
-  "green": { "sha": null }
+  "red": { "sha": "81b6666a8d5187541b15315de7da98a9000f2b05" },
+  "green": { "sha": "53b514827c3f05f993de2fb5d470d17cfbbb095a" }
 }
