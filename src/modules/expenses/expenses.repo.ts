@@ -245,6 +245,23 @@ export class DrizzleExpenseRepo<T extends Record<string, unknown>> {
     return { ...row, participant_member_ids: parts.get(id) ?? [] } as ExpenseRow;
   }
 
+  /** 변경 인가용 소유권 read — created_by/paid_by만 조회(응답 DTO/COLS 미확장).
+   *  deleted_at 필터로 부재·삭제 → null(서비스가 404 매핑). 두 컬럼은 생성 후 불변이라
+   *  CAS tx 밖 pre-check가 race-safe(설계 §B-2.1). */
+  async findMutationAuthz(
+    tripId: string,
+    id: string,
+  ): Promise<{ created_by_member_id: string; paid_by_member_id: string } | null> {
+    const rows = await this.db
+      .select({
+        created_by_member_id: expenses.created_by_member_id,
+        paid_by_member_id: expenses.paid_by_member_id,
+      })
+      .from(expenses)
+      .where(and(eq(expenses.trip_id, tripId), eq(expenses.id, id), isNull(expenses.deleted_at)));
+    return rows[0] ?? null;
+  }
+
   /** 멱등키로 라이브 지출 id 조회 — 초안 confirm이 롤백 전 "지출 미생성"을 증명하는 데 사용(동시 생성분 회수). */
   async findIdByIdempotencyKey(
     tripId: string,

@@ -73,7 +73,7 @@ describe("ExpensesService", () => {
       trip,
       exp.id,
       { version: 0, local_amount: "50000" },
-      { memberId },
+      { memberId, role: "admin" },
     );
     expect(updated.settlement_amount).toBe(50000n); // identity 재계산
     expect(updated.local_amount).toBe(50000n); // local 원본도 갱신
@@ -91,7 +91,7 @@ describe("ExpensesService", () => {
         trip,
         exp.id,
         { version: 0, local_amount: "1", manualRate: "9" },
-        { memberId },
+        { memberId, role: "admin" },
       ),
     ).rejects.toMatchObject({ status: 422 });
   });
@@ -103,7 +103,7 @@ describe("ExpensesService", () => {
         trip,
         exp.id,
         { version: 0, local_currency: "JPY", local_amount: "1000" },
-        { memberId },
+        { memberId, role: "admin" },
       ),
     ).rejects.toMatchObject({ status: 422 });
     expect((await svc().getExpense(trip, exp.id)).settlement_amount).toBe(37900n); // 구행 보존

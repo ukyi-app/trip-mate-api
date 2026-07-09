@@ -5,6 +5,7 @@ import { tripMembers } from "../../db/schema/members.ts";
 import { currencies } from "../../db/schema/currencies.ts";
 import {
   ConflictError,
+  ForbiddenError,
   FxUnresolvedError,
   NotFoundError,
   ValidationError,
@@ -24,6 +25,11 @@ import { decodeCursor, encodeCursor } from "./cursor.ts";
 
 export interface ExpenseActor {
   memberId: string;
+}
+/** 지출 변경(update/delete) 액터 — 소유권 인가에 role 필수(누락 role은 컴파일 에러).
+ *  create는 인가가 없어 role 불요(ExpenseActor 유지) — 유일한 모듈 외 재사용처(expense-drafts) 무영향. */
+export interface ExpenseMutationActor extends ExpenseActor {
+  role: string;
 }
 const dbCode = (e: unknown): string | undefined =>
   (e as { code?: string } | null)?.code ?? (e as { cause?: { code?: string } } | null)?.cause?.code;
@@ -312,12 +318,29 @@ export class ExpensesService<T extends Record<string, unknown>> {
     if (!row) throw new NotFoundError("expense not found");
     return row;
   }
+  /** 소유권 인가(설계 §B-2.1): admin ∨ 작성자 ∨ 결제자만 허용. **잠금/버전 검사보다 먼저** 평가하므로
+   *  비인가 actor는 finalized·stale 상태를 관측하지 못하고 무조건 403(정보 누출 차단).
+   *  부재/삭제 → 404(기존 행동 보존). created_by/paid_by는 생성 후 불변 → tx 밖 pre-check가 race-safe. */
+  private async authorizeMutation(
+    tripId: string,
+    id: string,
+    actor: ExpenseMutationActor,
+  ): Promise<void> {
+    const authz = await this.repo.findMutationAuthz(tripId, id);
+    if (!authz) throw new NotFoundError("expense not found");
+    const allowed =
+      actor.role === "admin" ||
+      authz.created_by_member_id === actor.memberId ||
+      authz.paid_by_member_id === actor.memberId;
+    if (!allowed) throw new ForbiddenError("not allowed to modify this expense", { tripId, id });
+  }
   async updateExpense(
     tripId: string,
     id: string,
     input: UpdateExpense,
-    actor: ExpenseActor,
+    actor: ExpenseMutationActor,
   ): Promise<ExpenseRow> {
+    await this.authorizeMutation(tripId, id, actor); // 잠금/버전보다 먼저 → 비인가는 상태 무관 403
     // finalized 가드는 repo.updateMeta tx 내 FOR UPDATE가 race-safe하게 수행(finding #2 pass2)
     const {
       version,
@@ -410,8 +433,9 @@ export class ExpensesService<T extends Record<string, unknown>> {
     tripId: string,
     id: string,
     version: number,
-    actor: ExpenseActor,
+    actor: ExpenseMutationActor,
   ): Promise<void> {
+    await this.authorizeMutation(tripId, id, actor); // 잠금/버전보다 먼저 → 비인가는 상태 무관 403
     // finalized 가드는 repo.softDelete tx 내 FOR UPDATE가 race-safe하게 수행(finding #2 pass2)
     const ok = await this.repo.softDelete(tripId, id, version, actor.memberId);
     if (!ok) {
