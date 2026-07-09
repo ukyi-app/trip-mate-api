@@ -1,7 +1,8 @@
 # Verification — expense-mutation-authz (G3 지출 수정/삭제 소유권 인가)
 
 증거 원천: `bugfix-status.mjs --verify-flip`의 **스크립트 자체 재실행**(주장 아님).
-- red.sha `81b6666` (fix 직전 baseline) · green.sha `53b5148` (fix). red..green = fix 5파일만(`src/modules/expenses/**` + 테스트).
+- red.sha `81b6666` (fix 직전 baseline) · green.sha `db43bda` (fix + 원본 repro). red..green 비테스트 =
+  fix 3소스(`src/modules/expenses/**`) + 게이트/verify 아티팩트(`docs/**`) — 둘 다 scope.
 
 ## Claim (gated-bugfix): 회귀 테스트 RED@red.sha → GREEN@fix, 주변 스위트 불변
 
@@ -12,18 +13,21 @@
 ```
 red  @81b6666:  regression { exit:1, failed:true, symptomTokenPresent:true(G3-AUTHZ) }
                 characterization { exit:0, green:true }
-green@53b5148:  regression { exit:0, passed:true }
+green@db43bda:  regression { exit:0, passed:true }
                 characterization { exit:0, green:true }
+                repro { exit:0, reproduces:false }   ← 원본 증상 더는 재현 안 됨
 ```
 
 - 커밋된 verify-record:
   - `docs/reviews/expense-mutation-authz/bugfix-verify-red-a255d402…json` (treeSha=81b6666 tree)
-  - `docs/reviews/expense-mutation-authz/bugfix-verify-green-2dcb7905…json` (treeSha=53b5148 tree)
+  - `docs/reviews/expense-mutation-authz/bugfix-verify-green-d5fcc528…json` (treeSha=db43bda tree)
 - ancestry: red.sha는 green.sha의 조상, 둘 다 HEAD에서 도달 가능(barrier 2).
-- surface(barrier 4): `git diff 81b6666..53b5148` 비테스트 경로 = `expenses.controller.ts`·`expenses.repo.ts`·
-  `expenses.service.ts` — 전부 scope `src/modules/expenses/**` 안.
-- reproCmd 부재 주: 독립 repro-gone 체크는 없으나 회귀 테스트가 **실제 HTTP 라우트(controller 통합)** 를
-  구동해 사용자 대면 증상(비인가 멤버의 지출 변경/삭제 성공)을 충실히 재현 → symptomToken + 회귀 플립으로 증명.
+- surface(barrier 4): `git diff 81b6666..db43bda` 비테스트 경로 = `expenses.controller.ts`·`expenses.repo.ts`·
+  `expenses.service.ts`(fix, scope `src/modules/expenses/**`) + `docs/**`(게이트/verify 아티팩트, scope `docs/**`).
+- **원본 증상 repro-gone (release R-1):** `reproCmd = bunx vitest run tests/regression/expenses-mutation-authz.repro.test.ts`
+  — 비인가 멤버의 타인 지출 수정 시도(사용자 대면 원본 시나리오). `--verify-flip`이 green@db43bda에서 재실행해
+  **`repro.reproduces:false`(exit 0, 403 응답)** 를 기록 → 스크립트 관측 출력으로 증상 소멸 증명.
+  before(증상): red 레코드의 `regression FAILED@red`(비인가 수정이 200으로 성공) → after: 403.
 
 ## I-1 수용 기준 매핑 (모두 충족)
 

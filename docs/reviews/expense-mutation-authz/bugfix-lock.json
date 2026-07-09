@@ -1,13 +1,14 @@
 {
   "regressionCmd": "bun install --frozen-lockfile >/dev/null 2>&1 && bunx vitest run tests/regression/expenses-mutation-authz.test.ts",
   "characterizationCmd": "bun install --frozen-lockfile >/dev/null 2>&1 && bunx vitest run src/modules/expenses src/modules/expense-drafts",
+  "reproCmd": "bun install --frozen-lockfile >/dev/null 2>&1 && bunx vitest run tests/regression/expenses-mutation-authz.repro.test.ts",
   "flips": [
     {
       "testId": "tests/regression/expenses-mutation-authz.test.ts :: 비인가 actor 지출 PATCH·DELETE → 403 (open·finalized·stale 상태 무관)",
       "symptomToken": "G3-AUTHZ"
     }
   ],
-  "scope": ["src/modules/expenses/**"],
+  "scope": ["src/modules/expenses/**", "docs/**"],
   "red": { "sha": "81b6666a8d5187541b15315de7da98a9000f2b05" },
-  "green": { "sha": "53b514827c3f05f993de2fb5d470d17cfbbb095a" }
+  "green": { "sha": "db43bda1630a02399c5cef419687be46e4949bec" }
 }

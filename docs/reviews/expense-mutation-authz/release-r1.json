@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "status": "ok",
+  "kind": "release",
+  "verdict": "needs-attention",
+  "summary": "No ship: the code change is scoped, but the final release evidence is incomplete for the required original-repro proof.",
+  "planFile": "docs/bugfixes/expense-mutation-authz.md",
+  "planInDiff": null,
+  "reviewedFileCount": 16,
+  "target": "branch diff against main",
+  "codexStatus": 0,
+  "parseError": null,
+  "findingCount": 1,
+  "planFindingCount": 0,
+  "findings": [
+    {
+      "severity": "high",
+      "title": "Missing verification: original repro output",
+      "body": "verification.md explicitly says there is no independent repro-gone check and substitutes the controller regression test for the original repro. The green verify-record also records repro as null, so the committed evidence does not show the original un-minimized repro no longer reproducing with actual command output. That violates the release-gate evidence contract and leaves the merge depending on a minimized regression test rather than the required repro proof.",
+      "file": "docs/reviews/expense-mutation-authz/verification.md",
+      "line_start": 25,
+      "line_end": 26,
+      "confidence": 0.94,
+      "recommendation": "Commit release verification that includes the original repro command and its green output at the reviewed final state, and update the verify-green record so repro evidence is non-null instead of relying on the regression suite as a substitute.",
+      "isPlanFinding": false
+    }
+  ],
+  "next_steps": []
+}

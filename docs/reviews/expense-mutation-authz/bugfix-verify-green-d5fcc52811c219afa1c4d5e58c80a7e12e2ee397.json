@@ -1,8 +1,8 @@
 {
   "kind": "bugfix-verify-green",
   "bug": "expense-mutation-authz",
-  "sha": "53b514827c3f05f993de2fb5d470d17cfbbb095a",
-  "treeSha": "2dcb79054242ef8573249751fed77edf64e5e559",
+  "sha": "db43bda1630a02399c5cef419687be46e4949bec",
+  "treeSha": "d5fcc52811c219afa1c4d5e58c80a7e12e2ee397",
   "regression": {
     "exit": 0,
     "passed": true
@@ -11,6 +11,9 @@
     "exit": 0,
     "green": true
   },
-  "repro": null,
+  "repro": {
+    "exit": 0,
+    "reproduces": false
+  },
   "note": "written by bugfix-status.mjs --verify-flip (script-owned re-execution)"
 }
