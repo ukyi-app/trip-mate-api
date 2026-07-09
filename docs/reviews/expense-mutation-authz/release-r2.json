@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "status": "ok",
+  "kind": "release",
+  "verdict": "approve",
+  "summary": "Ship: R-1 is resolved within the requested round-2 scope. The lock now includes reproCmd, the committed green verify-record records repro.exit=0 and reproduces=false, red is an ancestor of green, both SHAs are reachable from HEAD, and the R-1 follow-up diff adds only evidence/docs plus the repro test. No new critical issue found.",
+  "planFile": "docs/bugfixes/expense-mutation-authz.md",
+  "planInDiff": null,
+  "reviewedFileCount": 18,
+  "target": "branch diff against main",
+  "codexStatus": 0,
+  "parseError": null,
+  "findingCount": 0,
+  "planFindingCount": 0,
+  "findings": [],
+  "next_steps": []
+}
