@@ -310,4 +310,108 @@ describe("expenses 라우트", () => {
     };
     expect(list.items.length).toBe(1);
   });
+
+  // ── 소유권 인가 positive(경계 보존): 과잉차단 방지 + 인가 통과 후 잠금/버전은 그대로 409 ──
+  describe("소유권 인가(경계)", () => {
+    const idOf = async (r: Response) => ((await r.json()) as { id: string }).id;
+    const patch = (app: ReturnType<typeof appFor>, trip: string, id: string, version: number) =>
+      app.request(`/trips/${trip}/expenses/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ version, title: "수정" }),
+      });
+    const del = (app: ReturnType<typeof appFor>, trip: string, id: string, version: number) =>
+      app.request(`/trips/${trip}/expenses/${id}?version=${version}`, { method: "DELETE" });
+
+    // 작성자=결제자=admin(owner): PATCH·DELETE 200 (명시)
+    it("작성자 PATCH → 200", async () => {
+      const { u, trip, memberId } = await setup();
+      const app = appFor(u);
+      const id = await idOf(await postExp(app, trip, memberId));
+      expect((await patch(app, trip, id, 0)).status).toBe(200);
+    });
+    it("작성자 DELETE → 200", async () => {
+      const { u, trip, memberId } = await setup();
+      const app = appFor(u);
+      const id = await idOf(await postExp(app, trip, memberId));
+      expect((await del(app, trip, id, 0)).status).toBe(200);
+    });
+
+    // created_by 단독 인가: m2(member, non-admin)가 paid_by=owner로 생성 → m2는 작성자일 뿐(결제자·admin 아님).
+    // created_by 절만이 허용 근거 → authz에서 created_by 절 제거 시 이 케이스가 깨진다(변이 내성).
+    it("작성자(비결제자·비admin) PATCH → 200 (created_by 단독 인가)", async () => {
+      const { trip, memberId } = await setup(); // memberId = owner(admin) member
+      const u2 = await mkUser(ctx.sql);
+      await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+      const id = await idOf(await postExp(appFor(u2), trip, memberId)); // created_by=m2, paid_by=owner
+      expect((await patch(appFor(u2), trip, id, 0)).status).toBe(200);
+    });
+    it("작성자(비결제자·비admin) DELETE → 200 (created_by 단독 인가)", async () => {
+      const { trip, memberId } = await setup();
+      const u2 = await mkUser(ctx.sql);
+      await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+      const id = await idOf(await postExp(appFor(u2), trip, memberId)); // created_by=m2, paid_by=owner
+      expect((await del(appFor(u2), trip, id, 0)).status).toBe(200);
+    });
+
+    // 결제자(비작성자): owner가 paid_by=m2로 생성(created_by=owner) → m2가 PATCH·DELETE 200
+    it("결제자(비작성자) PATCH → 200", async () => {
+      const { u, trip } = await setup();
+      const u2 = await mkUser(ctx.sql);
+      const m2 = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+      const id = await idOf(await postExp(appFor(u), trip, m2)); // created_by=owner, paid_by=m2
+      expect((await patch(appFor(u2), trip, id, 0)).status).toBe(200);
+    });
+    it("결제자(비작성자) DELETE → 200", async () => {
+      const { u, trip } = await setup();
+      const u2 = await mkUser(ctx.sql);
+      const m2 = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+      const id = await idOf(await postExp(appFor(u), trip, m2));
+      expect((await del(appFor(u2), trip, id, 0)).status).toBe(200);
+    });
+
+    // admin(작성자·결제자 모두 아님): 일반멤버 m2가 생성(created_by=paid_by=m2) → admin owner가 PATCH·DELETE 200
+    it("admin(비작성자·비결제자) PATCH → 200", async () => {
+      const { u, trip } = await setup(); // u=admin creator
+      const u2 = await mkUser(ctx.sql);
+      const m2 = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+      const id = await idOf(await postExp(appFor(u2), trip, m2)); // created_by=paid_by=m2
+      expect((await patch(appFor(u), trip, id, 0)).status).toBe(200); // admin이지만 작성자·결제자 아님
+    });
+    it("admin(비작성자·비결제자) DELETE → 200", async () => {
+      const { u, trip } = await setup();
+      const u2 = await mkUser(ctx.sql);
+      const m2 = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+      const id = await idOf(await postExp(appFor(u2), trip, m2));
+      expect((await del(appFor(u), trip, id, 0)).status).toBe(200);
+    });
+
+    // 인가 통과 후에도 잠금/버전은 그대로 409 (authz는 그 앞 단계지 대체가 아님)
+    it("인가 actor + finalized trip PATCH → 409(잠금 유지)", async () => {
+      const { u, trip, memberId } = await setup();
+      const app = appFor(u);
+      const id = await idOf(await postExp(app, trip, memberId));
+      await ctx.sql`update trips set settlement_status='finalized' where id=${trip}`;
+      expect((await patch(app, trip, id, 0)).status).toBe(409);
+    });
+    it("인가 actor + finalized trip DELETE → 409(잠금 유지)", async () => {
+      const { u, trip, memberId } = await setup();
+      const app = appFor(u);
+      const id = await idOf(await postExp(app, trip, memberId));
+      await ctx.sql`update trips set settlement_status='finalized' where id=${trip}`;
+      expect((await del(app, trip, id, 0)).status).toBe(409);
+    });
+    it("인가 actor + stale version PATCH → 409(버전충돌 유지)", async () => {
+      const { u, trip, memberId } = await setup();
+      const app = appFor(u);
+      const id = await idOf(await postExp(app, trip, memberId));
+      expect((await patch(app, trip, id, 99)).status).toBe(409);
+    });
+    it("인가 actor + stale version DELETE → 409(버전충돌 유지)", async () => {
+      const { u, trip, memberId } = await setup();
+      const app = appFor(u);
+      const id = await idOf(await postExp(app, trip, memberId));
+      expect((await del(app, trip, id, 99)).status).toBe(409);
+    });
+  });
 });

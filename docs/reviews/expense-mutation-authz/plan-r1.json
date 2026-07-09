@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "status": "ok",
+  "kind": "plan",
+  "verdict": "needs-attention",
+  "summary": "Do not ship as written: the plan smuggles an untracked status-precedence flip into a single-flip bugfix. Simpler alternative: none safer than the service-layer ownership predicate; admin-only middleware would violate the creator/payer contract.",
+  "planFile": "docs/bugfixes/expense-mutation-authz.md",
+  "planInDiff": true,
+  "reviewedFileCount": 1,
+  "target": "working tree diff",
+  "codexStatus": 0,
+  "parseError": null,
+  "findingCount": 1,
+  "planFindingCount": 1,
+  "findings": [
+    {
+      "severity": "high",
+      "title": "Single-Flip Contract misses the required 409-to-403 precedence change",
+      "body": "The plan requires authz to run before finalized-trip and version-CAS checks so unauthorized callers cannot observe lock/version state, but the Single-Flip Contract only declares the currently-successful unauthorized PATCH/DELETE path changing 200 to 403. From the current source, finalized mutations fail 409 before update/delete, and stale versions are mapped to 409; moving authz before those checks also changes unauthorized finalized/stale requests from 409 to 403. The regression test only covers an open, fresh version=0 request, and the preserved contract only keeps 409 for authorized actors, so a competent implementer can either violate the single-flip invariant or leave this security ordering unproved.",
+      "file": "docs/bugfixes/expense-mutation-authz.md",
+      "line_start": 47,
+      "line_end": 49,
+      "confidence": 0.88,
+      "recommendation": "Reconcile the plan before implementation: either expand the Single-Flip Contract/flips[] to name the unauthorized status-precedence behavior under the same authz root cause and add RED/acceptance cases for outsider finalized-trip and stale-version PATCH/DELETE returning 403, or remove/defer the info-leak ordering requirement so existing 409 behavior remains preserved.",
+      "isPlanFinding": true
+    }
+  ],
+  "next_steps": [
+    "Open question: decide whether hiding finalized/version state from unauthorized joined members is part of this bugfix or a separate authorization-hardening flip."
+  ]
+}

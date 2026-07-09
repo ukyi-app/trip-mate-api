@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "status": "ok",
+  "kind": "plan",
+  "verdict": "approve",
+  "summary": "Ship gate can proceed for the narrowed r2 scope. P-1 is resolved: the plan now characterizes unauthorized actor -> 403 across open/finalized/stale states as one authz invariant, the lock points to red sha e469e4b, and the committed controller-level regression test asserts PATCH/DELETE outsider cases at the real route/service seam. The verify-red record exists, matches that sha/tree, and records regression failed with G3-AUTHZ while characterization stayed green. No new critical issue found. Simpler alternative: none materially simpler within the required author-or-payer-or-admin rule.",
+  "planFile": "docs/bugfixes/expense-mutation-authz.md",
+  "planInDiff": true,
+  "reviewedFileCount": 1,
+  "target": "working tree diff",
+  "codexStatus": 0,
+  "parseError": null,
+  "findingCount": 0,
+  "planFindingCount": 0,
+  "findings": [],
+  "next_steps": []
+}

@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "status": "ok",
+  "kind": "structure",
+  "verdict": "approve",
+  "summary": "No structure-level blocker found. The first-increment diff implements the planned service-layer authz seam, leaves the red regression test intact, stays inside the declared source scope, and the added tests pin route-level behavior rather than internals.",
+  "planFile": "docs/bugfixes/expense-mutation-authz.md",
+  "planInDiff": null,
+  "reviewedFileCount": 13,
+  "target": "branch diff against main",
+  "codexStatus": 0,
+  "parseError": null,
+  "findingCount": 0,
+  "planFindingCount": 0,
+  "findings": [],
+  "next_steps": []
+}

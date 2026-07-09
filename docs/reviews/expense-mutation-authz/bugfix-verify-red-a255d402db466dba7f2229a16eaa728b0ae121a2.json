@@ -1,0 +1,16 @@
+{
+  "kind": "bugfix-verify-red",
+  "bug": "expense-mutation-authz",
+  "sha": "81b6666a8d5187541b15315de7da98a9000f2b05",
+  "treeSha": "a255d402db466dba7f2229a16eaa728b0ae121a2",
+  "regression": {
+    "exit": 1,
+    "failed": true,
+    "symptomTokenPresent": true
+  },
+  "characterization": {
+    "exit": 0,
+    "green": true
+  },
+  "note": "written by bugfix-status.mjs --verify-red (script-owned re-execution)"
+}

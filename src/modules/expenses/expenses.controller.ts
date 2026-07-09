@@ -179,8 +179,10 @@ export function registerExpenseRoutes(app: OpenAPIHono, deps: Deps): void {
     }),
     async (c) => {
       const { tripId, expenseId } = c.req.valid("param");
+      const m = c.get("membership");
       const row = await deps.expensesService.updateExpense(tripId, expenseId, c.req.valid("json"), {
-        memberId: c.get("membership").id,
+        memberId: m.id,
+        role: m.role,
       });
       return c.json(toResponse(row), 200);
     },
@@ -203,8 +205,10 @@ export function registerExpenseRoutes(app: OpenAPIHono, deps: Deps): void {
     }),
     async (c) => {
       const { tripId, expenseId } = c.req.valid("param");
+      const m = c.get("membership");
       await deps.expensesService.deleteExpense(tripId, expenseId, c.req.valid("query").version, {
-        memberId: c.get("membership").id,
+        memberId: m.id,
+        role: m.role,
       });
       return c.json({ id: expenseId, deleted: true }, 200);
     },
