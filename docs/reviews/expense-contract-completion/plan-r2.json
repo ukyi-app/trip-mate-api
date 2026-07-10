@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "status": "ok",
+  "kind": "plan",
+  "verdict": "approve",
+  "summary": "Ship gate can proceed for the narrowed r2 scope. P-1 through P-4 are addressed in the design doc: production currency migration is explicit and idempotent, zero-activity caller net is specified as signed \"0\", HUF=0 is recorded as a deliberate product decision with warning, and per-slice test seams are named. No new critical issue found; no materially simpler alternative surfaced within this re-review scope.",
+  "planFile": "docs/reviews/expense-contract-completion/design.md",
+  "planInDiff": true,
+  "reviewedFileCount": 2,
+  "target": "working tree diff",
+  "codexStatus": 0,
+  "parseError": null,
+  "findingCount": 0,
+  "planFindingCount": 0,
+  "findings": [],
+  "next_steps": []
+}

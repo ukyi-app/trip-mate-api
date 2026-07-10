@@ -1,0 +1,67 @@
+{
+  "ok": true,
+  "status": "ok",
+  "kind": "plan",
+  "verdict": "needs-attention",
+  "summary": "No-ship: the plan can leave production currency data unchanged, has a real my_net_amount correctness hole, and does not name test seams. No materially simpler safe alternative surfaced for the full B-1/B-2.2/B-2.3 scope.",
+  "planFile": "docs/reviews/expense-contract-completion/design.md",
+  "planInDiff": true,
+  "reviewedFileCount": 1,
+  "target": "working tree diff",
+  "codexStatus": 0,
+  "parseError": null,
+  "findingCount": 4,
+  "planFindingCount": 4,
+  "findings": [
+    {
+      "severity": "high",
+      "title": "Currency expansion has no production data migration",
+      "body": "I-1 scopes B-1.2 to changing CURRENCY_SEED/oxr.SUPPORTED/tests. In the current repo, production boot self-migrates but does not run seedCurrencies; seeding is a separate CLI/test helper. A competent implementer can follow this plan, pass OpenAPI drift, and still deploy with existing DBs stuck at 9 currency rows, so new currency expense creation and GET /v1/currencies would not actually work. There is also no rollback/repair path if a new minor_unit is wrong.",
+      "file": "docs/reviews/expense-contract-completion/design.md",
+      "line_start": 28,
+      "line_end": 28,
+      "confidence": 0.94,
+      "recommendation": "Add an idempotent SQL/Drizzle data migration, or an explicit required deploy step, that inserts the 19 new currency rows; include a verification query and a rollback/repair path for minor_unit corrections.",
+      "isPlanFinding": true
+    },
+    {
+      "severity": "high",
+      "title": "my_net_amount misses joined members with no included expense activity",
+      "body": "D-B says to read summaries[me].net, while D-C says the batched fetch only loads included expenses and participants. Current settlement input construction only includes members who paid or participated in included expenses, so a joined member in a non-empty trip with no expense activity has no summary. The plan only defines summary absence for empty trips, so an implementer is likely to return null or error instead of the expected signed zero for a healthy trip.",
+      "file": "docs/reviews/expense-contract-completion/design.md",
+      "line_start": 45,
+      "line_end": 51,
+      "confidence": 0.91,
+      "recommendation": "Specify that the caller's member id is always included in each trip's compute input, or that missing summary for the caller is synthesized as \"0\"; add a test for a non-empty trip where the current member has no included expenses.",
+      "isPlanFinding": true
+    },
+    {
+      "severity": "medium",
+      "title": "HUF/TWD zero-decimal decision is unsafe for expense entry",
+      "body": "D-A sets HUF and TWD minor_unit=0 as the runtime money scale. That can match cash or payout rounding, but not general expense/card entry: Adyen lists HUF=2 and TWD=2 while IDR=0, and Stripe treats HUF/TWD as two-decimal for charges with zero-decimal special payout cases (https://docs.adyen.com/development-resources/currency-codes/, https://docs.stripe.com/currencies). Since this backend has card_billed amounts and uses currencies.minor_unit for FX scaling, HUF/TWD=0 can mis-scale or reject exact receipt/card amounts.",
+      "file": "docs/reviews/expense-contract-completion/design.md",
+      "line_start": 41,
+      "line_end": 44,
+      "confidence": 0.78,
+      "recommendation": "Reopen D-A for HUF/TWD: separate entry/display exponent from cash-rounding or payout exponent, or explicitly document and test that the product intentionally rounds these currencies to whole units.",
+      "isPlanFinding": true
+    },
+    {
+      "severity": "medium",
+      "title": "Open question: which seam tests the new public contracts?",
+      "body": "The preservation section only says the existing suite remains green, OpenAPI drift is green, and contract.smoke is skipped in CI. It does not name behavior seams for GET /v1/currencies, Expense DTO +4 fields, Trip my_member_id/my_net_amount, /me/invites, or the batched settlement repo. An engineer can satisfy this plan with OpenAPI regeneration and broad-suite green while missing pass/fail coverage for auth, zero-net semantics, corrupt-trip fallback, invite normalization, and cache headers.",
+      "file": "docs/reviews/expense-contract-completion/design.md",
+      "line_start": 64,
+      "line_end": 69,
+      "confidence": 0.9,
+      "recommendation": "Add a Testing Decisions section naming the few highest seams: route/controller contract tests for new endpoints and auth/cache, service/repo integration tests for batched net including zero-activity members and per-trip failure, DTO/doc tests for new OpenAPI fields, and invite discovery normalization/expiry tests.",
+      "isPlanFinding": true
+    }
+  ],
+  "next_steps": [
+    "Patch the plan with a concrete currency data migration/deploy verification and rollback story.",
+    "Define my_net_amount behavior for zero-activity members before I-4 starts.",
+    "Re-triage HUF/TWD runtime exponent versus cash-rounding expectations.",
+    "Add explicit Testing Decisions before slicing to implementation issues."
+  ]
+}
