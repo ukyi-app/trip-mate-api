@@ -31,3 +31,15 @@ export const inviteRevokedSchema = z
     status: z.enum(["invited", "joined", "deactivated", "invite_expired"]),
   })
   .openapi("InviteRevoked");
+
+/** GET /v1/me/invites 응답 아이템 — user-scoped 초대 발견 표면.
+ *  토큰/user_id/member id는 노출하지 않는다(수락은 이메일 링크의 raw 토큰으로만, 해시만 저장). */
+export const myInviteSchema = z
+  .object({
+    trip_id: z.string().uuid(),
+    trip_title: z.string(),
+    role: z.enum(["admin", "member"]),
+    invited_email: z.string(),
+    expires_at: z.iso.datetime(),
+  })
+  .openapi("MyInvite");

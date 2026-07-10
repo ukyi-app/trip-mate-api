@@ -413,6 +413,39 @@
           "status"
         ]
       },
+      "MyInvite": {
+        "type": "object",
+        "properties": {
+          "trip_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "trip_title": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ]
+          },
+          "invited_email": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "trip_id",
+          "trip_title",
+          "role",
+          "invited_email",
+          "expires_at"
+        ]
+      },
       "Expense": {
         "type": "object",
         "properties": {
@@ -2376,6 +2409,40 @@
           },
           "409": {
             "description": "409 problem+json",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/invites": {
+      "get": {
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MyInvite"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "403 problem+json",
             "content": {
               "application/problem+json": {
                 "schema": {
