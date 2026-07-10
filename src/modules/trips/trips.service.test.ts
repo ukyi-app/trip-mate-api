@@ -34,11 +34,16 @@ const input = (over: Record<string, unknown> = {}) => ({
 const actor = (id: string, email = "a@example.com", name = "Google이름") => ({ id, email, name });
 
 describe("TripsService", () => {
-  it("createTrip → trip + 생성자 어드민 멤버십(joined)", async () => {
+  it("createTrip → trip + 생성자 어드민 멤버십(joined), my_member_id=생성자 멤버십 id", async () => {
     const u = await mkUser(ctx.sql);
     const s = svc();
     const trip = await s.createTrip(input(), actor(u));
     expect(trip.settlement_currency).toBe("KRW");
+    // my_member_id = 생성자 멤버십(ensureCreatorMembership)의 id.
+    const rows = await ctx.sql<
+      { id: string }[]
+    >`select id from trip_members where trip_id=${trip.id} and user_id=${u}`;
+    expect(trip.my_member_id).toBe(rows[0]!.id);
     expect(await s.listTrips(u)).toHaveLength(1);
   });
   it("생성자 멤버십 display_name = 입력한 admin_display_name(§6.1, 'Me' 하드코딩 아님)", async () => {
@@ -109,6 +114,6 @@ describe("TripsService", () => {
       status: "joined",
     });
     await expect(s.deleteTrip(trip.id, otherMid)).rejects.toBeInstanceOf(ForbiddenError);
-    expect(await s.getTrip(trip.id)).toBeTruthy(); // 존재 유지
+    expect(await s.getTrip(trip.id, otherMid)).toBeTruthy(); // 존재 유지
   });
 });

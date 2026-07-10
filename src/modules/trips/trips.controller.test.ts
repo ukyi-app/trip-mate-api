@@ -1,10 +1,19 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { startDb, mkUser, mkMember, type Ctx } from "../../../tests/db/helpers.ts";
+import {
+  startDb,
+  mkUser,
+  mkTrip,
+  mkMember,
+  mkExpense,
+  type Ctx,
+} from "../../../tests/db/helpers.ts";
 import { createApp } from "../../core/openapi.ts";
 import { DrizzleTripRepo } from "./trips.repo.ts";
 import { DrizzleMemberRepo } from "../members/members.repo.ts";
 import { MembersService } from "../members/members.service.ts";
 import { TripsService } from "./trips.service.ts";
+import { DrizzleSettlementRepo } from "../settlements/settlements.repo.ts";
+import { SettlementsService } from "../settlements/settlements.service.ts";
 import { registerTripRoutes } from "./trips.controller.ts";
 import { registerErrorFilter } from "../../core/errors.ts";
 import type { SessionResolver } from "../../core/guards.ts";
@@ -26,6 +35,8 @@ function appFor(userId: string, email = "a@example.com") {
     new DrizzleTripRepo(ctx.db),
     new MembersService(new DrizzleMemberRepo(ctx.db), { ttlHours: 168 }),
   );
+  // 실 netLookup(mock 아님) — settlement축 개인 net 배치 계산.
+  const settlements = new SettlementsService(ctx.db, new DrizzleSettlementRepo(ctx.db));
   const resolver: SessionResolver = async () => ({ user: { id: userId } });
   const memberLookup = (tripId: string, uid: string) =>
     new DrizzleMemberRepo(ctx.db).findMembership(tripId, uid);
@@ -35,6 +46,7 @@ function appFor(userId: string, email = "a@example.com") {
     emailOf: async () => email,
     nameOf: async () => "테스터",
     memberLookup,
+    netLookup: (pairs) => settlements.netsForMemberships(pairs),
   });
   return app;
 }
@@ -105,6 +117,69 @@ describe("trips 라우트", () => {
   it("잘못된 timezone → 422 (finding #3 pass5)", async () => {
     const u = await mkUser(ctx.sql);
     expect((await post(appFor(u), { ...body(), timezone: "Mars/Phobos" })).status).toBe(422);
+  });
+
+  // ── I-4: my_member_id (detail) + net (list) ──────────────────────────────
+  it("(a) GET /trips/{id} → my_member_id = 호출자 멤버십 id, user_id 없음", async () => {
+    const u = await mkUser(ctx.sql);
+    const app = appFor(u);
+    const id = ((await (await post(app, body())).json()) as { id: string }).id;
+    const res = await app.request(`/trips/${id}`);
+    const json = (await res.json()) as Record<string, unknown>;
+    const rows = await ctx.sql<
+      { id: string }[]
+    >`select id from trip_members where trip_id=${id} and user_id=${u}`;
+    expect(json.my_member_id).toBe(rows[0]!.id);
+    expect(json).not.toHaveProperty("user_id");
+    expect(JSON.stringify(json)).not.toContain("user_id");
+  });
+
+  it("(b) GET /trips 목록 아이템: my_member_id/my_role/my_net_amount/net_currency, user_id 없음", async () => {
+    const u = await mkUser(ctx.sql);
+    const app = appFor(u);
+    await post(app, body());
+    const list = (await (await app.request("/trips")).json()) as Record<string, unknown>[];
+    expect(list).toHaveLength(1);
+    const item = list[0]!;
+    expect(item.my_member_id).toBeTruthy();
+    expect(item.my_role).toBe("admin");
+    expect(item.my_net_amount).toBe("0"); // 지출 없음 → "0"
+    expect(item.net_currency).toBe("KRW"); // = settlement_currency
+    expect(JSON.stringify(list)).not.toContain("user_id");
+  });
+
+  it("(c·P-2) 비어있지 않은 trip에서 활동 없는 조인 멤버 → my_net_amount === '0'", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const admin = await mkMember(ctx.sql, trip, { userId: u1, role: "admin", status: "joined" });
+    const u2 = await mkUser(ctx.sql);
+    await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+    // 지출은 admin 결제·참여자=admin만 → trip은 비어있지 않으나 u2는 summary 부재.
+    const eid = await mkExpense(ctx.sql, trip, admin);
+    await ctx.sql`insert into expense_participants (trip_id, expense_id, member_id) values (${trip}, ${eid}, ${admin})`;
+    const list = (await (await appFor(u2).request("/trips")).json()) as Record<string, unknown>[];
+    const item = list.find((t) => t.id === trip)!;
+    expect(item).toBeTruthy();
+    expect(item.my_net_amount).toBe("0"); // null 아님(P-2)
+    expect(item.net_currency).toBe("KRW");
+    expect(item.my_role).toBe("member");
+  });
+
+  it("(d) 받을/줄 멤버 → 부호 있는 net (admin +4660 / member -4660)", async () => {
+    const u1 = await mkUser(ctx.sql);
+    const trip = await mkTrip(ctx.sql, u1);
+    const admin = await mkMember(ctx.sql, trip, { userId: u1, role: "admin", status: "joined" });
+    const u2 = await mkUser(ctx.sql);
+    const m2 = await mkMember(ctx.sql, trip, { userId: u2, role: "member", status: "joined" });
+    const eid = await mkExpense(ctx.sql, trip, admin); // settlement_amount=9320, admin 결제
+    await ctx.sql`insert into expense_participants (trip_id, expense_id, member_id) values (${trip}, ${eid}, ${admin}), (${trip}, ${eid}, ${m2})`;
+    const adminList = (await (await appFor(u1).request("/trips")).json()) as Record<
+      string,
+      unknown
+    >[];
+    expect(adminList.find((t) => t.id === trip)!.my_net_amount).toBe("4660"); // 9320 − 4660
+    const m2List = (await (await appFor(u2).request("/trips")).json()) as Record<string, unknown>[];
+    expect(m2List.find((t) => t.id === trip)!.my_net_amount).toBe("-4660"); // 0 − 4660
   });
 
   const del = (app: ReturnType<typeof appFor>, id: string) =>

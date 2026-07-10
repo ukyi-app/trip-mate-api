@@ -1,20 +1,37 @@
 import { z } from "@hono/zod-openapi";
 import { displayName } from "../../core/schema.ts";
 
-/** 공개 응답 DTO(내부 컬럼 omit). 명시 zod로 OpenAPI 안정. */
-export const tripResponseSchema = z
-  .object({
-    id: z.string().uuid(),
-    title: z.string(),
-    start_date: z.string(), // date (YYYY-MM-DD)
-    end_date: z.string(),
-    destination_countries: z.array(z.string()),
-    timezone: z.string(),
-    primary_local_currency: z.string(),
-    settlement_currency: z.string(),
-    settlement_status: z.enum(["open", "finalized"]),
-  })
+/** DB row 형태(trips 컬럼만) — repo 반환 타입(D-D). user_id 등 내부 컬럼은 select에 없음. DTO 아님(.openapi 미부여). */
+export const tripRowShape = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  start_date: z.string(), // date (YYYY-MM-DD)
+  end_date: z.string(),
+  destination_countries: z.array(z.string()),
+  timezone: z.string(),
+  primary_local_currency: z.string(),
+  settlement_currency: z.string(),
+  settlement_status: z.enum(["open", "finalized"]),
+});
+
+/** 공개 응답 DTO(TripRow + my_member_id). detail/create/patch 공용 — 셋 다 멤버/생성자 스코프라 my_member_id 해석 가능. */
+export const tripResponseSchema = tripRowShape
+  .extend({ my_member_id: z.string().uuid() }) // 호출자 자신의 trip_members.id (user_id는 절대 노출 안 함)
   .openapi("Trip");
+
+/** 목록 아이템 DTO(TripRow + my_member_id/my_role + settlement축 net). GET /v1/trips 전용. */
+export const tripListItemSchema = tripRowShape
+  .extend({
+    my_member_id: z.string().uuid(),
+    my_role: z.enum(["admin", "member"]),
+    // settlement축 개인 net(total_paid − total_share), 부호 있는 minor-unit STRING. compute 오류 trip만 null.
+    my_net_amount: z
+      .string()
+      .regex(/^-?\d+$/)
+      .nullable(),
+    net_currency: z.string(), // = trip.settlement_currency
+  })
+  .openapi("TripListItem");
 
 // 실 달력 날짜(2026-99-99 거부, finding #3 pass5). Zod v4 z.iso.date().
 const isoDate = z.iso.date();
@@ -66,7 +83,12 @@ export const updateTripSchema = tripFields
 export const deleteTripResponseSchema = z
   .object({ id: z.string().uuid(), deleted: z.literal(true) })
   .openapi("DeleteTripResult");
+// DB row(트립 컬럼만) — repo create/findById/update 반환. TripResponse = TripRow + my_member_id.
+export type TripRow = z.infer<typeof tripRowShape>;
 export type TripResponse = z.infer<typeof tripResponseSchema>;
+export type TripListItem = z.infer<typeof tripListItemSchema>;
+// listForUser 반환 — DB에서 조인으로 얻는 TripRow + 호출자 멤버십(id·role). net은 서비스가 별도 주입.
+export type TripListRow = TripRow & { my_member_id: string; my_role: "admin" | "member" };
 export type CreateTrip = z.infer<typeof createTripSchema>;
 // trips 테이블 컬럼(admin_display_name 제외) — repo.create가 받는 형태.
 export type CreateTripColumns = z.infer<typeof tripFields>;

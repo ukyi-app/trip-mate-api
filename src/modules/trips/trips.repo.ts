@@ -4,7 +4,7 @@ import { trips } from "../../db/schema/trips.ts";
 import { tripMembers } from "../../db/schema/members.ts";
 import { expenses } from "../../db/schema/expenses.ts";
 import { settlements } from "../../db/schema/settlements.ts";
-import type { CreateTripColumns, TripResponse, UpdateTrip } from "./trips.schema.ts";
+import type { CreateTripColumns, TripListRow, TripRow, UpdateTrip } from "./trips.schema.ts";
 
 const COLS = {
   id: trips.id,
@@ -19,10 +19,12 @@ const COLS = {
 };
 
 export interface TripRepo {
-  create(input: CreateTripColumns, userId: string, tx?: unknown): Promise<TripResponse>;
-  findById(id: string): Promise<TripResponse | null>;
-  listForUser(userId: string): Promise<TripResponse[]>;
-  update(id: string, patch: UpdateTrip): Promise<TripResponse | null>;
+  // repo는 DB row(TripRow)만 반환(D-D). DTO 조립(my_member_id 등)은 서비스/컨트롤러 몫.
+  create(input: CreateTripColumns, userId: string, tx?: unknown): Promise<TripRow>;
+  findById(id: string): Promise<TripRow | null>;
+  // 목록은 조인으로 호출자 멤버십(id·role)까지 DB에서 함께 투영 → TripListRow.
+  listForUser(userId: string): Promise<TripListRow[]>;
+  update(id: string, patch: UpdateTrip): Promise<TripRow | null>;
   // (F5) 삭제는 호출자 admin 재검증까지 원자로 — 반환: "deleted" | "not_found" | "forbidden".
   delete(
     tripId: string,
@@ -35,30 +37,31 @@ export class DrizzleTripRepo<T extends Record<string, unknown>> implements TripR
   constructor(private readonly db: PostgresJsDatabase<T>) {}
 
   // tx 핸들 주입 시 그 위에서 실행(trip 생성+멤버십 단일 tx, finding #2 pass1)
-  async create(input: CreateTripColumns, userId: string, tx?: unknown): Promise<TripResponse> {
+  async create(input: CreateTripColumns, userId: string, tx?: unknown): Promise<TripRow> {
     const exec = (tx as PostgresJsDatabase<T> | undefined) ?? this.db;
     const rows = await exec
       .insert(trips)
       .values({ ...input, created_by_user_id: userId })
       .returning(COLS);
-    return rows[0]! as TripResponse;
+    return rows[0]! as TripRow;
   }
-  async findById(id: string): Promise<TripResponse | null> {
+  async findById(id: string): Promise<TripRow | null> {
     const rows = await this.db.select(COLS).from(trips).where(eq(trips.id, id));
-    return (rows[0] ?? null) as TripResponse | null;
+    return (rows[0] ?? null) as TripRow | null;
   }
-  async listForUser(userId: string): Promise<TripResponse[]> {
+  async listForUser(userId: string): Promise<TripListRow[]> {
+    // 호출자 멤버십의 id·role을 조인으로 함께 투영(목록 아이템의 my_member_id·my_role). user_id는 노출 안 함.
     const rows = await this.db
-      .select(COLS)
+      .select({ ...COLS, my_member_id: tripMembers.id, my_role: tripMembers.role })
       .from(trips)
       .innerJoin(tripMembers, eq(tripMembers.trip_id, trips.id))
       .where(and(eq(tripMembers.user_id, userId), eq(tripMembers.status, "joined")));
-    return rows as TripResponse[];
+    return rows as TripListRow[];
   }
-  async update(id: string, patch: UpdateTrip): Promise<TripResponse | null> {
+  async update(id: string, patch: UpdateTrip): Promise<TripRow | null> {
     if (Object.keys(patch).length === 0) return this.findById(id);
     const rows = await this.db.update(trips).set(patch).where(eq(trips.id, id)).returning(COLS);
-    return (rows[0] ?? null) as TripResponse | null;
+    return (rows[0] ?? null) as TripRow | null;
   }
 
   // 어드민 방 전체 삭제(무가드): trip row FOR UPDATE로 finalize/expense-create·동시 양도와 직렬화.

@@ -50,6 +50,10 @@
               "open",
               "finalized"
             ]
+          },
+          "my_member_id": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [
@@ -61,7 +65,8 @@
           "timezone",
           "primary_local_currency",
           "settlement_currency",
-          "settlement_status"
+          "settlement_status",
+          "my_member_id"
         ]
       },
       "Problem": {
@@ -143,6 +148,82 @@
           "timezone",
           "primary_local_currency",
           "settlement_currency"
+        ]
+      },
+      "TripListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "start_date": {
+            "type": "string"
+          },
+          "end_date": {
+            "type": "string"
+          },
+          "destination_countries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "primary_local_currency": {
+            "type": "string"
+          },
+          "settlement_currency": {
+            "type": "string"
+          },
+          "settlement_status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "finalized"
+            ]
+          },
+          "my_member_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "my_role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ]
+          },
+          "my_net_amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+$"
+          },
+          "net_currency": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "start_date",
+          "end_date",
+          "destination_countries",
+          "timezone",
+          "primary_local_currency",
+          "settlement_currency",
+          "settlement_status",
+          "my_member_id",
+          "my_role",
+          "my_net_amount",
+          "net_currency"
         ]
       },
       "UpdateTrip": {
@@ -1643,7 +1724,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/Trip"
+                    "$ref": "#/components/schemas/TripListItem"
                   }
                 }
               }

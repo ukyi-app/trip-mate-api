@@ -182,6 +182,35 @@ export class SettlementsService<T extends Record<string, unknown>> {
     });
   }
 
+  /** (F-B1) 목록용 배치 net: 각 (tripId, memberId)의 **settlement축 개인 net**(total_paid − total_share).
+   *  - fetch는 배치(repo.listIncludedExpensesForTrips = IN-query 2개), compute는 trip별 인메모리(D-C).
+   *  - 값=bigint: no-activity/빈 trip 멤버는 summary 부재 → 0n(P-2). 그 외는 summaries[me].net.
+   *  - 값=null: 해당 trip 하나의 compute 오류(invariant/validation)만 격리 — 목록 전체를 깨지 않음.
+   *  finalized trip도 라이브 compute(finalize 락이 included 지출 변경을 막아 live==snapshot). */
+  async netsForMemberships(
+    pairs: { tripId: string; memberId: string }[],
+  ): Promise<Map<string, bigint | null>> {
+    const out = new Map<string, bigint | null>();
+    if (pairs.length === 0) return out;
+    const tripIds = [...new Set(pairs.map((p) => p.tripId))];
+    const byTrip = await this.repo.listIncludedExpensesForTrips(this.db, tripIds);
+    for (const { tripId, memberId } of pairs) {
+      const rows = byTrip.get(tripId) ?? [];
+      try {
+        if (rows.length === 0) {
+          out.set(tripId, 0n); // 빈 trip → 아무것도 주고받지 않음
+          continue;
+        }
+        const result = computeSettlement(toInputs(rows));
+        const summary = result.settlement.summaries.find((s) => s.member === memberId);
+        out.set(tripId, summary ? (summary.net as bigint) : 0n); // summary 부재(비활동)→0n
+      } catch {
+        out.set(tripId, null); // 이 trip만 격리(SettlementInvariantError/ValidationError)
+      }
+    }
+    return out;
+  }
+
   async precheck(tripId: string): Promise<{
     finalizable: boolean;
     reasons: string[];

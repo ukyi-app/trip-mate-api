@@ -83,6 +83,8 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
     emailOf: deps.emailOf,
     nameOf: deps.nameOf,
     memberLookup: deps.memberLookup,
+    // net PORT: 이미 배선된 settlementsService에서 파생(V1Deps 불변). 목록 net을 배치 계산.
+    netLookup: (pairs) => deps.settlementsService.netsForMemberships(pairs),
   });
   registerMemberRoutes(v1, {
     service: deps.membersService,
