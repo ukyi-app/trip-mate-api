@@ -114,3 +114,8 @@ web-expenses가 요구하지만 백엔드가 아직 지탱 못 하는 계약 갭
 - **S-2** (Structural Risk/med, `trips.controller.test.ts`) corrupt-trip→null이 GET /trips seam에서 미고정 →
   **Accept**: 라우트 레벨 null 테스트 추가(정상 sibling은 실값, corrupt는 null).
 - (사용자 standing triage 2026-07-10: "특이사항 없으면 권고대로 진행" — 둘 다 clear-Accept 구조/테스트 강화.)
+
+### Codex Structure Review (I-4 skeleton) — r2: clean
+
+- S-1·S-2 해소. `verdict: approve`, 0 findings (`structure-r2.json`). "structurally cleared, no new critical issue."
+  skeleton(I-4) 구조 게이트 통과 → 나머지 슬라이스/verification 진행.
