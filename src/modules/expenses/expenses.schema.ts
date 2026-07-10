@@ -46,6 +46,10 @@ export const expenseResponseSchema = z
     expense_settlement_state: z.enum(STATE),
     memo: z.string().nullable(),
     version: z.number().int(),
+    created_by_member_id: z.string().uuid(),
+    last_modified_by_member_id: z.string().uuid().nullable(),
+    created_at: z.iso.datetime(),
+    updated_at: z.iso.datetime(),
   })
   .openapi("Expense");
 

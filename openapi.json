@@ -425,6 +425,25 @@
           },
           "version": {
             "type": "integer"
+          },
+          "created_by_member_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_modified_by_member_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -445,7 +464,11 @@
           "spent_at",
           "expense_settlement_state",
           "memo",
-          "version"
+          "version",
+          "created_by_member_id",
+          "last_modified_by_member_id",
+          "created_at",
+          "updated_at"
         ]
       },
       "CreateExpense": {

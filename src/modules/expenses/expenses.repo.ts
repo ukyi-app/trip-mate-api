@@ -48,6 +48,10 @@ export interface ExpenseRow {
   memo: string | null;
   version: number;
   participant_member_ids: string[];
+  created_by_member_id: string;
+  last_modified_by_member_id: string | null;
+  created_at: Date;
+  updated_at: Date;
 }
 // 목록 필터(api-contract §6). currency=local_currency(지출별 통화), member=결제자 OR 참여자.
 export interface ExpenseListFilters {
@@ -108,6 +112,10 @@ const COLS = {
   expense_settlement_state: expenses.expense_settlement_state,
   memo: expenses.memo,
   version: expenses.version,
+  created_by_member_id: expenses.created_by_member_id,
+  last_modified_by_member_id: expenses.last_modified_by_member_id,
+  created_at: expenses.created_at,
+  updated_at: expenses.updated_at,
 };
 
 // audit jsonb-safe 변환(bigint→string, Date→ISO) — JSON.stringify(bigint) 예외 회피(finding #3 pass1)

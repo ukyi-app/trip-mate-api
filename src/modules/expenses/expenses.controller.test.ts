@@ -109,6 +109,30 @@ describe("expenses 라우트", () => {
     expect(((await list.json()) as { items: unknown[] }).items.length).toBe(1);
     expect((await app.request(`/trips/${trip}/expenses/${exp.id}`)).status).toBe(200);
   });
+  it("응답 DTO: author/modifier/timestamps 노출(생성=null modifier, PATCH 후 modifier 설정)", async () => {
+    const { u, trip, memberId } = await setup();
+    const app = appFor(u);
+    const created = (await (await postExp(app, trip, memberId)).json()) as {
+      id: string;
+      created_by_member_id: string;
+      last_modified_by_member_id: string | null;
+      created_at: string;
+      updated_at: string;
+    };
+    expect(created.created_by_member_id).toBe(memberId); // 작성자 = 생성 principal
+    expect(created.last_modified_by_member_id).toBeNull(); // 생성 시 미수정
+    expect(typeof created.created_at).toBe("string");
+    expect(Number.isNaN(Date.parse(created.created_at))).toBe(false); // ISO date-time
+    expect(Number.isNaN(Date.parse(created.updated_at))).toBe(false);
+    const patched = (await (
+      await app.request(`/trips/${trip}/expenses/${created.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ version: 0, title: "수정" }),
+      })
+    ).json()) as { last_modified_by_member_id: string | null };
+    expect(patched.last_modified_by_member_id).toBe(memberId); // PATCH 후 수정자 설정(non-null)
+  });
   it("비멤버 → 403", async () => {
     const { trip, memberId } = await setup();
     const outsider = await mkUser(ctx.sql);
