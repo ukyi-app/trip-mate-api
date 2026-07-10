@@ -15,6 +15,7 @@ import {
   type TripListItem,
 } from "./trips.schema.ts";
 import type { TripsService } from "./trips.service.ts";
+import { netKey } from "../settlements/settlements.service.ts";
 
 /** settlement축 개인 net 배치 조회 PORT(app.ts가 settlementsService.netsForMemberships로 바인딩).
  *  값=bigint(0n 포함, no-activity 시 0n) 또는 null(해당 trip compute 오류). 키=tripId. */
@@ -79,7 +80,7 @@ export function registerTripRoutes(app: OpenAPIHono, deps: Deps): void {
         rows.map((r) => ({ tripId: r.id, memberId: r.my_member_id })),
       );
       const items: TripListItem[] = rows.map((r) => {
-        const net = netMap.get(r.id);
+        const net = netMap.get(netKey(r.id, r.my_member_id)); // 복합 키 조회(tripId:memberId)
         return {
           ...r,
           // null=해당 trip compute 오류. 그 외(0n 포함/키 부재)는 부호 있는 문자열, no-activity→"0"(P-2).

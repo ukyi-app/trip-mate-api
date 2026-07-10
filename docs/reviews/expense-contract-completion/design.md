@@ -106,3 +106,11 @@ web-expenses가 요구하지만 백엔드가 아직 지탱 못 하는 계약 갭
 - **P-2** (Major/high, `design.md:45-51`) 무활동 joined 멤버의 my_net_amount 누락 → **Accept**: 호출자 summary 부재 시 항상 "0"; null은 compute 에러만(D-B).
 - **P-3** (Minor/med, `design.md:41-44`) HUF/TWD 0-소수 위험 → **HUF=0(사용자 결정, 옵션 1)**: TWD=0 확정(기존 시드+발주), HUF=0은 수동입력·정수 forint·카드 자동수집 부재로 확정, 주석에 근거+경고(D-A).
 - **P-4** (Minor/med, `design.md:64-69`) 테스트 seam 미명시 → **Accept**: Testing Decisions 섹션 추가.
+
+### Codex Structure Review (I-4 skeleton) — r1: needs-attention (2 findings)
+
+- **S-1** (Structural Risk/med, `settlements.service.ts`) net port가 `Map<tripId,net>`라 같은 trip 두 멤버 충돌 →
+  **Accept**: 반환 Map을 `netKey(tripId,memberId)` 복합키로 정직화(fail-safe, member-level 재사용 안전). 컨트롤러 조회도 복합키.
+- **S-2** (Structural Risk/med, `trips.controller.test.ts`) corrupt-trip→null이 GET /trips seam에서 미고정 →
+  **Accept**: 라우트 레벨 null 테스트 추가(정상 sibling은 실값, corrupt는 null).
+- (사용자 standing triage 2026-07-10: "특이사항 없으면 권고대로 진행" — 둘 다 clear-Accept 구조/테스트 강화.)

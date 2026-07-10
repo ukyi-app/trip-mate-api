@@ -22,6 +22,9 @@ export interface SettleActor {
   role: string;
 }
 
+/** netsForMemberships 반환 Map의 복합 키 — (tripId, memberId) 쌍을 유일하게 식별(같은 trip·다른 멤버 충돌 방지). */
+export const netKey = (tripId: string, memberId: string): string => `${tripId}:${memberId}`;
+
 function toInputs(rows: IncludedExpenseRow[]): { expenses: ExpenseInput[]; members: MemberId[] } {
   const members = new Set<string>();
   const expenses = rows.map((r) => {
@@ -184,6 +187,7 @@ export class SettlementsService<T extends Record<string, unknown>> {
 
   /** (F-B1) 목록용 배치 net: 각 (tripId, memberId)의 **settlement축 개인 net**(total_paid − total_share).
    *  - fetch는 배치(repo.listIncludedExpensesForTrips = IN-query 2개), compute는 trip별 인메모리(D-C).
+   *  - 반환 Map 키는 **복합 `tripId:memberId`**(netKey) — 같은 trip을 여러 멤버 관점으로 조회해도 충돌 없음.
    *  - 값=bigint: no-activity/빈 trip 멤버는 summary 부재 → 0n(P-2). 그 외는 summaries[me].net.
    *  - 값=null: 해당 trip 하나의 compute 오류(invariant/validation)만 격리 — 목록 전체를 깨지 않음.
    *  finalized trip도 라이브 compute(finalize 락이 included 지출 변경을 막아 live==snapshot). */
@@ -198,14 +202,15 @@ export class SettlementsService<T extends Record<string, unknown>> {
       const rows = byTrip.get(tripId) ?? [];
       try {
         if (rows.length === 0) {
-          out.set(tripId, 0n); // 빈 trip → 아무것도 주고받지 않음
+          out.set(netKey(tripId, memberId), 0n); // 빈 trip → 아무것도 주고받지 않음
           continue;
         }
         const result = computeSettlement(toInputs(rows));
         const summary = result.settlement.summaries.find((s) => s.member === memberId);
-        out.set(tripId, summary ? (summary.net as bigint) : 0n); // summary 부재(비활동)→0n
+        // summary 부재(비활동)→0n
+        out.set(netKey(tripId, memberId), summary ? (summary.net as bigint) : 0n);
       } catch {
-        out.set(tripId, null); // 이 trip만 격리(SettlementInvariantError/ValidationError)
+        out.set(netKey(tripId, memberId), null); // 이 trip만 격리(Invariant/ValidationError)
       }
     }
     return out;

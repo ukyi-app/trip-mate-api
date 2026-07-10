@@ -182,6 +182,24 @@ describe("trips 라우트", () => {
     expect(m2List.find((t) => t.id === trip)!.my_net_amount).toBe("-4660"); // 0 − 4660
   });
 
+  it("(S-2) 손상 trip → GET /trips에서 my_net_amount === null (정상 형제는 실값 계산)", async () => {
+    const u = await mkUser(ctx.sql);
+    // 정상 trip: u=admin, m2 참여 → u net = +4660
+    const healthy = await mkTrip(ctx.sql, u);
+    const hAdmin = await mkMember(ctx.sql, healthy, { userId: u, role: "admin", status: "joined" });
+    const u2 = await mkUser(ctx.sql);
+    const hm2 = await mkMember(ctx.sql, healthy, { userId: u2, role: "member", status: "joined" });
+    const he = await mkExpense(ctx.sql, healthy, hAdmin);
+    await ctx.sql`insert into expense_participants (trip_id, expense_id, member_id) values (${healthy}, ${he}, ${hAdmin}), (${healthy}, ${he}, ${hm2})`;
+    // 손상 trip: u도 멤버. included 지출인데 참여자 0명 → computeSettlement throw → route가 null 매핑.
+    const corrupt = await mkTrip(ctx.sql, u);
+    const cAdmin = await mkMember(ctx.sql, corrupt, { userId: u, role: "admin", status: "joined" });
+    await mkExpense(ctx.sql, corrupt, cAdmin); // 참여자 row 미삽입 → throw
+    const list = (await (await appFor(u).request("/trips")).json()) as Record<string, unknown>[];
+    expect(list.find((t) => t.id === healthy)!.my_net_amount).toBe("4660"); // 정상 형제 실값
+    expect(list.find((t) => t.id === corrupt)!.my_net_amount).toBeNull(); // 손상만 null(route seam 고정)
+  });
+
   const del = (app: ReturnType<typeof appFor>, id: string) =>
     app.request(`/trips/${id}`, { method: "DELETE" });
 
