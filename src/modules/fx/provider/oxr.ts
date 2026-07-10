@@ -2,9 +2,40 @@ import { ofetch } from "ofetch";
 import Decimal from "decimal.js";
 import type { FxProvider, UsdTable } from "../fx.types.ts";
 
-export const SUPPORTED = ["USD", "KRW", "JPY", "VND", "TWD", "EUR", "THB", "GBP", "CHF"] as const;
+// buildValidatedTable은 SUPPORTED만으로 UsdTable을 만든다 → seed⊆SUPPORTED 불변식 필수.
+// (seed엔 있으나 SUPPORTED에 없는 통화는 FX가 조용히 last_known/trip_default로 저하된다.)
+export const SUPPORTED = [
+  "USD",
+  "KRW",
+  "JPY",
+  "VND",
+  "TWD",
+  "EUR",
+  "THB",
+  "GBP",
+  "CHF",
+  "AED",
+  "AUD",
+  "CAD",
+  "CNY",
+  "CZK",
+  "DKK",
+  "HKD",
+  "HUF",
+  "IDR",
+  "INR",
+  "MOP",
+  "MYR",
+  "NOK",
+  "NZD",
+  "PHP",
+  "PLN",
+  "SEK",
+  "SGD",
+  "TRY",
+] as const;
 
-/** rates(번호) → UsdTable(Decimal). 9통화 검증 통과만 반환, 아니면 null. */
+/** rates(번호) → UsdTable(Decimal). 28통화 검증 통과만 반환, 아니면 null. */
 export function buildValidatedTable(rates: Record<string, unknown>): UsdTable | null {
   const out: UsdTable = {};
   for (const code of SUPPORTED) {
