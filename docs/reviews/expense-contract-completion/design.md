@@ -119,3 +119,11 @@ web-expenses가 요구하지만 백엔드가 아직 지탱 못 하는 계약 갭
 
 - S-1·S-2 해소. `verdict: approve`, 0 findings (`structure-r2.json`). "structurally cleared, no new critical issue."
   skeleton(I-4) 구조 게이트 통과 → 나머지 슬라이스/verification 진행.
+
+### Codex Release Review — r1: needs-attention (1 finding)
+
+- **R-1** (Must Fix/high, `0008_dashing_domino.sql`) 마이그레이션이 신규 19종만 삽입 → 프로덕션 부팅은
+  seedCurrencies를 안 돌리므로 **마이그레이션-only fresh/DR DB가 원본 9종을 놓침**(default KRW/JPY 여행/지출 422).
+  → **Accept**: 0008을 **전 28종** `INSERT ... ON CONFLICT DO NOTHING`으로(완전한 부팅 데이터 소스; 기존 DB는
+  ON CONFLICT로 무영향). + `migrate.test.ts`에 **migrate-only(seed 없이)→28행** 회귀 테스트(프로덕션 부팅 경로 직접 증명).
+  (사용자 standing triage: clear-Accept 배포 correctness 버그.)

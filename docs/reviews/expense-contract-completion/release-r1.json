@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "status": "ok",
+  "kind": "release",
+  "verdict": "needs-attention",
+  "summary": "No-ship: the currency migration is not a complete boot-time data source, so fresh self-migrated environments can come up missing the original 9 currencies despite the committed verification claiming 28-row coverage.",
+  "planFile": "docs/reviews/expense-contract-completion/design.md",
+  "planInDiff": null,
+  "reviewedFileCount": 48,
+  "target": "branch diff against main",
+  "codexStatus": 0,
+  "parseError": null,
+  "findingCount": 1,
+  "planFindingCount": 0,
+  "findings": [
+    {
+      "severity": "high",
+      "title": "Fresh self-migrated databases only get 19 currencies",
+      "body": "Migration 0008 is the only migration that inserts currency rows, but it inserts only the 19 newly-added codes. Because production boot runs migrations without seedCurrencies, a fresh DB, rebuild, or DR environment created solely from migrations will miss the original 9 currencies (KRW/JPY/VND/TWD/USD/EUR/THB/GBP/CHF). The 28-row verification is masked by the test helper seeding after migrate, so it does not prove the production boot path. Impact: default KRW/JYP-style trip and expense creation can still fail in fresh migrated environments, and recovery depends on an undocumented seed step.",
+      "file": "src/db/migrations/0008_dashing_domino.sql",
+      "line_start": 7,
+      "line_end": 27,
+      "confidence": 0.94,
+      "recommendation": "Make the data migration insert the full 28-row catalog with ON CONFLICT DO NOTHING, preserving existing 9-row values, or add a baseline seed migration. Add a migration-only test that runs runMigrations without seedCurrencies and asserts all 28 codes/minor_units are present after repeated runs.",
+      "isPlanFinding": false
+    }
+  ],
+  "next_steps": [
+    "Patch 0008 or add a follow-up migration so migrations alone produce the full currency catalog.",
+    "Add migration-only verification for the 28-row catalog without calling seedCurrencies."
+  ]
+}
