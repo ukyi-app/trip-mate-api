@@ -8,7 +8,7 @@ import {
   type Ctx,
 } from "../../../tests/db/helpers.ts";
 import { DrizzleSettlementRepo } from "./settlements.repo.ts";
-import { SettlementsService } from "./settlements.service.ts";
+import { SettlementsService, netKey } from "./settlements.service.ts";
 
 let ctx: Ctx;
 beforeAll(async () => {
@@ -199,5 +199,58 @@ describe("SettlementsService reversal/history", () => {
     await expect(
       svc().transferEvents(trip, "11111111-1111-4111-8111-111111111111"),
     ).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("SettlementsService.netsForMemberships (F-B1 배치 net)", () => {
+  it("배치: 서로 다른 trip을 한 번에(활동 trip=4660, 빈 trip=0n)", async () => {
+    const { trip, admin } = await scene(); // 지출 9320, 참여자 admin+m2
+    const eu = await mkUser(ctx.sql);
+    const empty = await mkTrip(ctx.sql, eu); // 지출 없는 trip
+    const em = await mkMember(ctx.sql, empty, { userId: eu, role: "admin", status: "joined" });
+    const map = await svc().netsForMemberships([
+      { tripId: trip, memberId: admin },
+      { tripId: empty, memberId: em },
+    ]);
+    expect(map.get(netKey(trip, admin))).toBe(4660n); // 9320 − 4660
+    expect(map.get(netKey(empty, em))).toBe(0n); // 빈 trip → 0n
+  });
+
+  it("같은 trip·다른 멤버를 한 호출에 → 복합 키로 충돌 없음(부호)", async () => {
+    const { trip, admin, m2 } = await scene();
+    // S-1: 같은 tripId 두 멤버를 한 배치로 — tripId만 키였다면 뒤가 앞을 덮어써 collision.
+    const map = await svc().netsForMemberships([
+      { tripId: trip, memberId: admin },
+      { tripId: trip, memberId: m2 },
+    ]);
+    expect(map.get(netKey(trip, admin))).toBe(4660n);
+    expect(map.get(netKey(trip, m2))).toBe(-4660n);
+  });
+
+  it("(P-2) 비어있지 않은 trip의 비활동 멤버 → 0n (null 아님)", async () => {
+    const { trip } = await scene(); // admin·m2만 활동
+    const u3 = await mkUser(ctx.sql);
+    const m3 = await mkMember(ctx.sql, trip, { userId: u3, role: "member", status: "joined" });
+    const map = await svc().netsForMemberships([{ tripId: trip, memberId: m3 }]);
+    expect(map.get(netKey(trip, m3))).toBe(0n); // summary 부재 → 0n
+  });
+
+  it("compute 오류 trip은 그 trip만 null(전체 안 깨짐)", async () => {
+    const good = await scene();
+    // included 지출인데 참여자 0명 → splitExpense가 SettlementInvariantError('expense has no participants').
+    const u = await mkUser(ctx.sql);
+    const bad = await mkTrip(ctx.sql, u, "KRW");
+    const bm = await mkMember(ctx.sql, bad, { userId: u, role: "admin", status: "joined" });
+    await mkExpense(ctx.sql, bad, bm); // 참여자 row 미삽입 → compute throw
+    const map = await svc().netsForMemberships([
+      { tripId: good.trip, memberId: good.admin },
+      { tripId: bad, memberId: bm },
+    ]);
+    expect(map.get(netKey(good.trip, good.admin))).toBe(4660n); // 정상 trip 계산 유지
+    expect(map.get(netKey(bad, bm))).toBeNull(); // 이상 trip만 null
+  });
+
+  it("빈 pairs → 빈 Map", async () => {
+    expect((await svc().netsForMemberships([])).size).toBe(0);
   });
 });

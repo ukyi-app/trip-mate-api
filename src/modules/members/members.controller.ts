@@ -12,6 +12,7 @@ import {
   updateMemberSchema,
   acceptResponseSchema,
   inviteRevokedSchema,
+  myInviteSchema,
 } from "./members.schema.ts";
 import type { MembersService } from "./members.service.ts";
 import type { Mailer } from "../notifications/mailer.port.ts";
@@ -184,6 +185,23 @@ export function registerMemberRoutes(app: OpenAPIHono, deps: Deps): void {
         { trip_id: row.trip_id, role: row.role as "admin" | "member", status: row.status },
         200,
       );
+    },
+  );
+
+  // 내 초대 목록(인증만 — user-scoped, 전 trip 교차 발견 표면). requireTripMember 없음(특정 trip 소속 불요).
+  // basePath("/v1") 하 최종 경로 = /v1/me/invites. 토큰/user_id/member id는 미노출(수락은 이메일 링크로).
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/me/invites",
+      security: [{ cookieAuth: [] }],
+      middleware: [auth],
+      responses: { ...ok(z.array(myInviteSchema)), ...errorResponses(403) },
+    }),
+    async (c) => {
+      const user = c.get("user");
+      const email = await deps.emailOf(user.id);
+      return c.json(await deps.service.listMyInvites(email), 200);
     },
   );
 }

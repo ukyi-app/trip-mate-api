@@ -285,3 +285,88 @@ describe("members/invites 라우트", () => {
     ).toBe(403);
   });
 });
+
+describe("GET /me/invites (user-scoped 내 초대 목록)", () => {
+  it("정규화 이메일이 매칭되는 pending 초대만 반환 — 불일치/수락/만료는 제외", async () => {
+    const admin = await mkUser(ctx.sql);
+    const me = await mkUser(ctx.sql);
+    const myEmail = "discover@example.com";
+
+    // (1) 매칭 + 유효(미만료) 초대 → 반환돼야 한다.
+    const tripMatch = await mkTrip(ctx.sql, admin);
+    await svc().createInvite(tripMatch, myEmail, "Match");
+
+    // (2) 이메일 불일치 초대 → 제외(유효 만료지만 다른 이메일).
+    const tripOther = await mkTrip(ctx.sql, admin);
+    await svc().createInvite(tripOther, "someone-else@example.com", "Other");
+
+    // (3) 수락됨(status=joined) → 제외.
+    const tripAccepted = await mkTrip(ctx.sql, admin);
+    const { token } = await svc().createInvite(tripAccepted, myEmail, "Acc");
+    await svc().acceptInvite(token, { id: me, email: myEmail });
+
+    // (4) 만료(status=invited이나 토큰 만료 시각이 과거) → 제외.
+    const tripExpired = await mkTrip(ctx.sql, admin);
+    const pastSvc = new MembersService(new DrizzleMemberRepo(ctx.db), {
+      ttlHours: 168,
+      now: () => new Date(Date.now() - 1000 * 60 * 60 * 24 * 30),
+    });
+    await pastSvc.createInvite(tripExpired, myEmail, "Exp");
+
+    const res = await appFor(me, myEmail).request("/me/invites");
+    expect(res.status).toBe(200);
+    const items = (await res.json()) as { trip_id: string }[];
+    const ids = items.map((i) => i.trip_id);
+    expect(ids).toContain(tripMatch);
+    expect(ids).not.toContain(tripOther); // 이메일 불일치
+    expect(ids).not.toContain(tripAccepted); // 이미 수락
+    expect(ids).not.toContain(tripExpired); // 만료
+  });
+
+  it("응답 아이템은 정확히 {trip_id,trip_title,role,invited_email,expires_at} — 토큰/user_id/member id 미노출", async () => {
+    const admin = await mkUser(ctx.sql);
+    const me = await mkUser(ctx.sql);
+    const myEmail = "keys-check@example.com";
+    const trip = await mkTrip(ctx.sql, admin);
+    await svc().createInvite(trip, myEmail, "K");
+
+    const res = await appFor(me, myEmail).request("/me/invites");
+    expect(res.status).toBe(200);
+    const items = (await res.json()) as Record<string, unknown>[];
+    const item = items.find((i) => i.trip_id === trip);
+    expect(item).toBeDefined();
+    // 정확 키 집합 — 하나라도 초과/누락되면 실패.
+    expect(Object.keys(item!).sort()).toEqual(
+      ["expires_at", "invited_email", "role", "trip_id", "trip_title"].sort(),
+    );
+    // 내부/민감 필드는 어떤 형태로도 노출되면 안 된다.
+    expect(item).not.toHaveProperty("invite_token_hash");
+    expect(item).not.toHaveProperty("user_id");
+    expect(item).not.toHaveProperty("id"); // trip_members.id(member_id)
+    expect(item!.trip_title).toBe("T");
+    expect(item!.invited_email).toBe(myEmail);
+    expect(item!.role).toBe("member");
+    expect(typeof item!.expires_at).toBe("string");
+  });
+
+  it("미인증(resolver null) → 403", async () => {
+    const app = createApp();
+    registerErrorFilter(app);
+    const lookup = (t: string, u: string) => new DrizzleMemberRepo(ctx.db).findMembership(t, u);
+    registerMemberRoutes(app, {
+      service: svc(),
+      resolver: async () => null,
+      emailOf: async () => "x@example.com",
+      memberLookup: lookup,
+    });
+    const res = await app.request("/me/invites");
+    expect(res.status).toBe(403);
+  });
+
+  it("세션 유저 이메일이 빈 문자열 → [] (normalizeEmail 422 아님)", async () => {
+    const me = await mkUser(ctx.sql);
+    const res = await appFor(me, "").request("/me/invites");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+});

@@ -1,6 +1,12 @@
 import { ConflictError, ForbiddenError, NotFoundError } from "../../core/errors.ts";
 import { generateInviteToken, hashToken, normalizeEmail } from "./domain/invite-token.ts";
-import type { MemberRepo, MemberRow, MemberPublic, MemberUpdate } from "./members.repo.ts";
+import type {
+  MemberRepo,
+  MemberRow,
+  MemberPublic,
+  MemberUpdate,
+  MyInvitePublic,
+} from "./members.repo.ts";
 
 export interface Actor {
   id: string;
@@ -79,6 +85,13 @@ export class MembersService {
 
   async listMembers(tripId: string): Promise<MemberPublic[]> {
     return this.repo.listByTrip(tripId);
+  }
+
+  /** 내 초대 목록(user-scoped). normalizeEmail 전 빈/무효 이메일 가드 —
+   *  emailOf가 user row 부재 시 ""를 줄 수 있고 normalizeEmail("")는 422를 던지므로, 그 전에 []로 단락. */
+  async listMyInvites(email: string): Promise<MyInvitePublic[]> {
+    if (!email || !email.includes("@")) return [];
+    return this.repo.listMyInvites(normalizeEmail(email));
   }
 
   /** 멤버 수정(display_name·status). 비활성 시 마지막 어드민 가드(§9.5)는 repo가 trip 락 하 원자 재검증(F6). */

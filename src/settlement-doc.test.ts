@@ -15,6 +15,7 @@ function docApp() {
     idempotencyStore: null,
     expenseDrafts: {} as never,
     consentService: {} as never,
+    currenciesService: {} as never,
     webOrigins: ["http://localhost:5173"],
   });
 }

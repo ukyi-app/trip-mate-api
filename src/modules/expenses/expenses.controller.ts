@@ -57,6 +57,10 @@ function toResponse(row: ExpenseRow): z.infer<typeof expenseResponseSchema> {
     expense_settlement_state: row.expense_settlement_state,
     memo: row.memo,
     version: row.version,
+    created_by_member_id: row.created_by_member_id,
+    last_modified_by_member_id: row.last_modified_by_member_id,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
   };
 }
 

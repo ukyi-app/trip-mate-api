@@ -13,14 +13,17 @@ const validInput = () => ({
 });
 
 describe("trips DTO", () => {
-  it("응답은 공개 필드 포함·내부(created_by_user_id) 없음", () => {
+  it("응답은 공개 필드+my_member_id 포함·내부(created_by_user_id/user_id) 없음", () => {
     const r = tripResponseSchema.safeParse({
       id: "11111111-1111-4111-8111-111111111111", // 유효 UUID(v4·variant)
       ...validInput(),
       settlement_status: "open",
+      my_member_id: "22222222-2222-4222-8222-222222222222", // 호출자 자신의 멤버십 id
     });
     expect(r.success).toBe(true);
+    expect("my_member_id" in tripResponseSchema.shape).toBe(true);
     expect("created_by_user_id" in tripResponseSchema.shape).toBe(false);
+    expect("user_id" in tripResponseSchema.shape).toBe(false);
   });
   it("create 입력 검증: 정상·title빈값·역순날짜·잘못된날짜·bogus timezone", () => {
     expect(createTripSchema.safeParse(validInput()).success).toBe(true);

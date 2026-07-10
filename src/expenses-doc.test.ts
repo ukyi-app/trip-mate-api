@@ -15,6 +15,7 @@ function docApp() {
     idempotencyStore: null,
     expenseDrafts: {} as never,
     consentService: {} as never,
+    currenciesService: {} as never,
     webOrigins: ["http://localhost:5173"],
   });
 }
@@ -31,6 +32,17 @@ describe("expenses OpenAPI 계약", () => {
     const schemas = doc().components?.schemas ?? {};
     expect(schemas.Expense).toBeDefined();
     expect(schemas.CreateExpense).toBeDefined();
+  });
+  it("Expense 스키마: author/modifier/timestamps 노출(G1)", () => {
+    const schemas = doc().components?.schemas ?? {};
+    const props = (schemas.Expense as { properties?: Record<string, unknown> }).properties ?? {};
+    for (const k of [
+      "created_by_member_id",
+      "last_modified_by_member_id",
+      "created_at",
+      "updated_at",
+    ])
+      expect(props[k]).toBeDefined();
   });
   it("목록: ExpenseList 응답 스키마 + 커서·필터 쿼리 파라미터(§6)", () => {
     const d = doc();

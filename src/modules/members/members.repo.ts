@@ -18,6 +18,15 @@ export interface MemberUpdate {
   status?: "joined" | "deactivated" | undefined;
 }
 
+/** 내 초대 발견 행 — 노출 필드만(토큰/user_id/trip_members.id 제외). expires_at은 ISO 문자열. */
+export interface MyInvitePublic {
+  trip_id: string;
+  trip_title: string;
+  role: "admin" | "member";
+  invited_email: string;
+  expires_at: string;
+}
+
 /** 어드민 양도 결과. 실패는 서비스가 HTTP 에러로 매핑(not_admin→409, target_missing→404, target_ineligible→409). */
 export type TransferAdminOutcome =
   | { ok: true; member: MemberPublic }
@@ -61,6 +70,8 @@ export interface MemberRepo {
   findMemberById(tripId: string, memberId: string): Promise<MemberRow | null>;
   findMembership(tripId: string, userId: string): Promise<MemberRow | null>;
   listByTrip(tripId: string): Promise<MemberPublic[]>;
+  /** user-scoped 초대 발견 — 정규화 이메일 매칭 + status='invited' + 미만료(> now())만, trips join으로 title. */
+  listMyInvites(normalizedEmail: string): Promise<MyInvitePublic[]>;
   /** 멤버 수정 — status는 **user_id 바인딩된 joined↔deactivated만**. 비활성은 trip 락 하 last-admin 재검증(F6). 0행=불가/부재, "last_admin"=마지막 admin 비활성 차단. */
   updateMember(
     tripId: string,
@@ -209,6 +220,36 @@ export class DrizzleMemberRepo<T extends Record<string, unknown>> implements Mem
 
   async listByTrip(tripId: string): Promise<MemberPublic[]> {
     return this.db.select(PUBLIC_COLS).from(tripMembers).where(eq(tripMembers.trip_id, tripId));
+  }
+
+  /** 내 초대 목록: 정규화 이메일 = 세션 이메일 AND status='invited' AND 토큰 미만료(> now()).
+   *  trips innerJoin으로 title 조인. 노출 컬럼만 select(토큰 해시/user_id/id 제외). */
+  async listMyInvites(normalizedEmail: string): Promise<MyInvitePublic[]> {
+    const rows = await this.db
+      .select({
+        trip_id: tripMembers.trip_id,
+        trip_title: trips.title,
+        role: tripMembers.role,
+        invited_email: tripMembers.invited_email,
+        expires_at: tripMembers.invite_token_expires_at,
+      })
+      .from(tripMembers)
+      .innerJoin(trips, eq(trips.id, tripMembers.trip_id))
+      .where(
+        and(
+          eq(tripMembers.normalized_invited_email, normalizedEmail),
+          eq(tripMembers.status, "invited"),
+          sql`${tripMembers.invite_token_expires_at} > now()`,
+        ),
+      );
+    // expires_at은 WHERE(> now())로 non-null 보장 → ISO 문자열로 직렬화.
+    return rows.map((r) => ({
+      trip_id: r.trip_id,
+      trip_title: r.trip_title,
+      role: r.role,
+      invited_email: r.invited_email,
+      expires_at: r.expires_at!.toISOString(),
+    }));
   }
 
   /** 멤버 수정. status 변경은 user_id 바인딩된 joined↔deactivated만(invited→joined 위조 차단, finding #3 pass3).

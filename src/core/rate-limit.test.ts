@@ -88,6 +88,7 @@ describe("buildV1App rate-limit 배선", () => {
       idempotencyStore: null,
       expenseDrafts: {} as never,
       consentService: {} as never,
+      currenciesService: {} as never,
       webOrigins: ["https://trip-mate.ukyi.app"],
       rateLimit: rateLimit(redis, { scope: "wire", max: 1, windowSec: 60 }),
     });

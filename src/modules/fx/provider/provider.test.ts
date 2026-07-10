@@ -19,10 +19,29 @@ const FULL = {
   THB: 36.2,
   GBP: 0.79,
   CHF: 0.89,
+  AED: 3.67,
+  AUD: 1.52,
+  CAD: 1.36,
+  CNY: 7.24,
+  CZK: 23.1,
+  DKK: 6.85,
+  HKD: 7.81,
+  HUF: 355.0,
+  IDR: 16200,
+  INR: 83.3,
+  MOP: 8.05,
+  MYR: 4.68,
+  NOK: 10.7,
+  NZD: 1.64,
+  PHP: 57.2,
+  PLN: 3.95,
+  SEK: 10.5,
+  SGD: 1.34,
+  TRY: 32.4,
 };
 
 describe("OxrProvider", () => {
-  it("9통화 완전 → UsdTable(Decimal)", async () => {
+  it("28통화 완전 → UsdTable(Decimal)", async () => {
     fetchMock.mockReset();
     fetchMock.mockResolvedValue({ base: "USD", rates: FULL });
     const t = await new OxrProvider("key").getUsdTable("2026-08-04");
@@ -54,7 +73,7 @@ const CA_FULL: Record<string, { value: number }> = Object.fromEntries(
 );
 
 describe("CurrencyApiProvider", () => {
-  it("9통화 완전 → UsdTable(Decimal)", async () => {
+  it("28통화 완전 → UsdTable(Decimal)", async () => {
     fetchMock.mockReset();
     fetchMock.mockResolvedValue({ data: CA_FULL });
     const t = await new CurrencyApiProvider("key").getUsdTable("2026-08-04");

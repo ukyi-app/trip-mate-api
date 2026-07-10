@@ -174,9 +174,12 @@ describe("schema introspection (SSOT 객체 존재)", () => {
     );
     expect(def("change_type_check")).toMatch(/'create'.*'update'.*'delete'.*'restore'/s);
   });
-  it("currencies seed 9통화 + TWD minor=0", async () => {
+  it("currencies seed 28통화 + TWD/HUF/IDR minor=0", async () => {
     const rows = await ctx.sql`select code, minor_unit from currencies`;
-    expect(rows.length).toBe(9);
-    expect(rows.find((r) => r.code === "TWD")?.minor_unit).toBe(0);
+    expect(rows.length).toBe(28);
+    // 정수만 유통(ISO 지수≠실무 minor_unit): 마이그레이션/seed가 minor_unit=0으로 심었는지 검증.
+    for (const code of ["TWD", "HUF", "IDR"]) {
+      expect(rows.find((r) => r.code === code)?.minor_unit).toBe(0);
+    }
   });
 });

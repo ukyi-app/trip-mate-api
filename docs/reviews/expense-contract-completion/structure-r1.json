@@ -1,0 +1,43 @@
+{
+  "ok": true,
+  "status": "ok",
+  "kind": "structure",
+  "verdict": "needs-attention",
+  "summary": "No-ship: the money-facing list-net seam is still structurally weak, and the public nullable fallback is not pinned at the route seam.",
+  "planFile": "docs/reviews/expense-contract-completion/design.md",
+  "planInDiff": null,
+  "reviewedFileCount": 12,
+  "target": "branch diff against d5a94f0",
+  "codexStatus": 0,
+  "parseError": null,
+  "findingCount": 2,
+  "planFindingCount": 0,
+  "findings": [
+    {
+      "severity": "medium",
+      "title": "Trip net port loses the membership dimension",
+      "body": "The skeleton seam accepts many `(tripId, memberId)` pairs but returns `Map<tripId, net>`, and the implementation writes each result with `out.set(tripId, ...)`. That cannot represent two members for the same trip; the later pair overwrites the earlier. The current GET /trips caller likely sends unique trip IDs, but that invariant is not encoded in the signature, so any future reuse for member-level net views would silently report wrong balances instead of failing fast.",
+      "file": "src/modules/settlements/settlements.service.ts",
+      "line_start": 190,
+      "line_end": 207,
+      "confidence": 0.78,
+      "recommendation": "Either narrow the port to a trip-unique request and assert duplicates, or return results per requested membership, e.g. an array aligned to input order or a map keyed by both tripId and memberId; compute settlement once per trip and project all requested members from it.",
+      "isPlanFinding": false
+    },
+    {
+      "severity": "medium",
+      "title": "Test-quality: Seam discipline",
+      "body": "The I-4 controller test block covers member id, user_id absence, zero/no-activity, and signed nets, but it does not pin the PRD-recorded corrupt-trip -> `my_net_amount: null` behavior at the public GET /trips seam. That nullable DTO mapping lives in the controller, while the corrupt-trip assertion is only below it in SettlementsService tests; a route refactor could accidentally turn null into '0' and this skeleton's public-contract tests would still pass.",
+      "file": "src/modules/trips/trips.controller.test.ts",
+      "line_start": 122,
+      "line_end": 183,
+      "confidence": 0.86,
+      "recommendation": "Add a GET /trips controller test with one healthy trip and one corrupt included expense trip, asserting the healthy item keeps its signed net and only the corrupt item's `my_net_amount` is null.",
+      "isPlanFinding": false
+    }
+  ],
+  "next_steps": [
+    "Fix the net lookup result shape or enforce trip-unique input at the port boundary.",
+    "Add the missing public route seam test for corrupt-trip null behavior."
+  ]
+}

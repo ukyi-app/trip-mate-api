@@ -2,7 +2,14 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { ForbiddenError, NotFoundError, ValidationError } from "../../core/errors.ts";
 import type { MembersService } from "../members/members.service.ts";
 import type { TripRepo } from "./trips.repo.ts";
-import type { CreateTrip, DeleteTripResult, TripResponse, UpdateTrip } from "./trips.schema.ts";
+import type {
+  CreateTrip,
+  DeleteTripResult,
+  TripListRow,
+  TripResponse,
+  TripRow,
+  UpdateTrip,
+} from "./trips.schema.ts";
 // CreateTripColumns는 repo가 받는 trip 컬럼 형태(admin_display_name 제외).
 
 export interface TripActor {
@@ -37,32 +44,40 @@ export class TripsService<T extends Record<string, unknown>> {
     try {
       return await this.db.transaction(async (tx) => {
         const trip = await this.repo.create(cols, actor.id, tx);
-        await this.members.ensureCreatorMembership(trip.id, actor.id, displayName, actor.email, tx);
-        return trip;
+        // my_member_id는 생성자 멤버십에서 해석(POST는 미들웨어 membership이 없으므로 여기서).
+        const membership = await this.members.ensureCreatorMembership(
+          trip.id,
+          actor.id,
+          displayName,
+          actor.email,
+          tx,
+        );
+        return { ...trip, my_member_id: membership.id };
       });
     } catch (e) {
       return asValidation(e);
     }
   }
-  async listTrips(userId: string): Promise<TripResponse[]> {
+  /** 목록: DB row + 호출자 멤버십(id·role). net/net_currency는 컨트롤러가 netLookup으로 조립(D-C). */
+  async listTrips(userId: string): Promise<TripListRow[]> {
     return this.repo.listForUser(userId);
   }
-  /** 멤버만 조회(인가는 미들웨어 requireTripMember가 1차, 여기선 존재 확인). */
-  async getTrip(id: string): Promise<TripResponse> {
+  /** 멤버만 조회(인가는 미들웨어 requireTripMember가 1차, 여기선 존재 확인). my_member_id=미들웨어 membership.id. */
+  async getTrip(id: string, myMemberId: string): Promise<TripResponse> {
     const t = await this.repo.findById(id);
     if (!t) throw new NotFoundError("trip not found");
-    return t;
+    return { ...t, my_member_id: myMemberId };
   }
-  /** 수정은 어드민(미들웨어 requireTripMember('admin')가 게이팅). DB 제약 위반→422. */
-  async updateTrip(id: string, patch: UpdateTrip): Promise<TripResponse> {
-    let t: TripResponse | null;
+  /** 수정은 어드민(미들웨어 requireTripMember('admin')가 게이팅). DB 제약 위반→422. my_member_id=guard membership.id. */
+  async updateTrip(id: string, patch: UpdateTrip, myMemberId: string): Promise<TripResponse> {
+    let t: TripRow | null;
     try {
       t = await this.repo.update(id, patch);
     } catch (e) {
       return asValidation(e);
     }
     if (!t) throw new NotFoundError("trip not found");
-    return t;
+    return { ...t, my_member_id: myMemberId };
   }
 
   /** 어드민 방 전체 삭제(무가드): 미들웨어 requireTripMember('admin')가 1차 게이팅, repo가 (내부 tx) trip 락 하 admin 재검증(F5·F7, TOCTOU 차단).

@@ -16,6 +16,7 @@ function docApp() {
     idempotencyStore: null,
     expenseDrafts: {} as never,
     consentService: {} as never,
+    currenciesService: {} as never,
     webOrigins: ["http://localhost:5173"],
   });
 }
@@ -56,6 +57,17 @@ describe("OpenAPI 스펙 계약", () => {
     const body = (await res.json()) as { openapi?: string; paths?: Record<string, unknown> };
     expect(body.openapi).toBe("3.1.0");
     expect(Object.keys(body.paths ?? {}).some((p) => p.includes("/v1/trips"))).toBe(true);
+  });
+  it("통화 참조 경로 등록(GET /v1/currencies) + Currency 스키마(minor_unit SSOT)", () => {
+    const d = doc();
+    const p = (d.paths ?? {})["/v1/currencies"] as Record<string, unknown> | undefined;
+    expect(p?.get).toBeDefined();
+    const currency = d.components?.schemas?.Currency as
+      | { properties?: Record<string, unknown> }
+      | undefined;
+    expect(currency).toBeDefined();
+    // iso_exponent는 스키마 어디에도 노출 금지(minor_unit이 SSOT) — 계약 레벨 회귀 락.
+    expect(currency?.properties).not.toHaveProperty("iso_exponent");
   });
   it("DELETE /v1/trips/{tripId} 등록 + DeleteTripResult 스키마(방 삭제 계약)", () => {
     const d = doc();

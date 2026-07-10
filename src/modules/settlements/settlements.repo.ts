@@ -75,6 +75,52 @@ export class DrizzleSettlementRepo<T extends Record<string, unknown>> {
     })) as IncludedExpenseRow[];
   }
 
+  /** 여러 trip의 포함 지출+참여자를 **IN-query 2개**로 배치(D-C: O(1) round-trip). 목록 net 계산용.
+   *  반환 Map은 요청한 tripId 전부에 키 존재(빈 trip은 []). 순수 compute는 호출자가 trip별로. */
+  async listIncludedExpensesForTrips(
+    exec: Exec,
+    tripIds: string[],
+  ): Promise<Map<string, IncludedExpenseRow[]>> {
+    const out = new Map<string, IncludedExpenseRow[]>();
+    for (const id of tripIds) out.set(id, []); // 빈 trip도 키 보장(no-activity→"0" 판정 안정)
+    if (tripIds.length === 0) return out;
+    // ① 지출 IN-query: 모든 trip의 included·미삭제 지출을 한 번에.
+    const rows = await exec
+      .select({ ...INC_COLS, trip_id: expenses.trip_id })
+      .from(expenses)
+      .where(
+        and(
+          inArray(expenses.trip_id, tripIds),
+          eq(expenses.expense_settlement_state, "included"),
+          isNull(expenses.deleted_at),
+        ),
+      );
+    if (rows.length === 0) return out;
+    // ② 참여자 IN-query: 위 지출들의 참여자를 한 번에.
+    const parts = await exec
+      .select({
+        expense_id: expenseParticipants.expense_id,
+        member_id: expenseParticipants.member_id,
+      })
+      .from(expenseParticipants)
+      .where(
+        inArray(
+          expenseParticipants.expense_id,
+          rows.map((r) => r.id),
+        ),
+      );
+    const byExp = new Map<string, string[]>();
+    for (const p of parts)
+      byExp.set(p.expense_id, [...(byExp.get(p.expense_id) ?? []), p.member_id]);
+    for (const r of rows) {
+      const { trip_id, ...rest } = r;
+      out
+        .get(trip_id)!
+        .push({ ...rest, participant_member_ids: byExp.get(r.id) ?? [] } as IncludedExpenseRow);
+    }
+    return out;
+  }
+
   async lockTrip(tx: Exec, tripId: string): Promise<{ status: string } | null> {
     const rows = await tx
       .select({ status: trips.settlement_status })
