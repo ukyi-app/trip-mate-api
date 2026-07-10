@@ -3,7 +3,7 @@ feature: expense-contract-completion
 invariant-class: feature
 entry-track: feature
 review-track: full
-pipeline-stage: executing
+pipeline-stage: done
 issue-tracker: local
 skeleton: [I-4]
 issues: [I-1, I-2, I-3, I-4, I-5]
@@ -133,3 +133,9 @@ web-expenses가 요구하지만 백엔드가 아직 지탱 못 하는 계약 갭
 - R-1 해소. `verdict: approve`, 0 findings (`release-r2.json`). "Migration 0008 now inserts the full 28-currency
   catalog with ON CONFLICT, matching CURRENCY_SEED, and the migrate-only regression test exercises the prod boot
   path. No new critical issue." → **3 게이트(plan·structure·release) 전부 approve. 랜딩 가능.**
+
+### Landing — PR #29 병합 완료
+
+- PR #29 (https://github.com/ukyi-app/trip-mate-api/pull/29) → **main 병합 완료** (merge commit `737d99b`, `--merge`).
+  병합된 main 전체 스위트 green(68 passed|4 skipped 파일 · 616 passed|10 skipped). 워크트리·로컬/원격 브랜치 teardown 완료.
+  **`pipeline-stage: done`.** 백엔드 발주(B-1/B-2.2/B-2.3) 전부 소진.
