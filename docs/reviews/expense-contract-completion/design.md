@@ -127,3 +127,9 @@ web-expenses가 요구하지만 백엔드가 아직 지탱 못 하는 계약 갭
   → **Accept**: 0008을 **전 28종** `INSERT ... ON CONFLICT DO NOTHING`으로(완전한 부팅 데이터 소스; 기존 DB는
   ON CONFLICT로 무영향). + `migrate.test.ts`에 **migrate-only(seed 없이)→28행** 회귀 테스트(프로덕션 부팅 경로 직접 증명).
   (사용자 standing triage: clear-Accept 배포 correctness 버그.)
+
+### Codex Release Review — r2: clean
+
+- R-1 해소. `verdict: approve`, 0 findings (`release-r2.json`). "Migration 0008 now inserts the full 28-currency
+  catalog with ON CONFLICT, matching CURRENCY_SEED, and the migrate-only regression test exercises the prod boot
+  path. No new critical issue." → **3 게이트(plan·structure·release) 전부 approve. 랜딩 가능.**

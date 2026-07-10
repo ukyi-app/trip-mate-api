@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "status": "ok",
+  "kind": "release",
+  "verdict": "approve",
+  "summary": "Scoped R-1 re-review approves. Migration 0008 now inserts the full 28-currency catalog with ON CONFLICT, matching CURRENCY_SEED, and the new migrate-only regression test exercises runMigrations without seedCurrencies and checks both original and new currency presence. No new critical issue found in the R-1 fix.",
+  "planFile": "docs/reviews/expense-contract-completion/design.md",
+  "planInDiff": null,
+  "reviewedFileCount": 50,
+  "target": "branch diff against main",
+  "codexStatus": 0,
+  "parseError": null,
+  "findingCount": 0,
+  "planFindingCount": 0,
+  "findings": [],
+  "next_steps": []
+}
