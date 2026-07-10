@@ -21,6 +21,7 @@ function rootWithV1() {
     idempotencyStore: null,
     expenseDrafts: {} as never,
     consentService: {} as never,
+    currenciesService: {} as never,
     webOrigins: ["http://localhost:5173"],
   });
   app.route("/", v1);

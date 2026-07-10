@@ -32,6 +32,8 @@ import {
 } from "./modules/expense-drafts/expense-drafts.service.ts";
 import { registerConsentRoutes } from "./modules/consents/consents.controller.ts";
 import type { ConsentService } from "./modules/consents/consents.service.ts";
+import { registerCurrencyRoutes } from "./modules/currencies/currencies.controller.ts";
+import type { CurrenciesService } from "./modules/currencies/currencies.service.ts";
 
 export interface V1Deps {
   tripsService: TripsService<Record<string, unknown>>;
@@ -54,6 +56,7 @@ export interface V1Deps {
   usageMetrics?: UsageMetrics; // 파싱 메트릭 registry
   expenseDrafts: ExpenseDraftsService; // 지속형 초안(parse 저장·조회·편집·확정·폐기). 항상 배선(라우트 무조건 등록)
   consentService: ConsentService; // 서버측 동의 기록(PB-1). 항상 배선 — parse recordDisclosure를 필수화(fail-closed)
+  currenciesService: CurrenciesService; // 통화 참조 데이터(minor_unit SSOT). 항상 배선 — 라우트 무조건 등록(스펙 항상 포함)
 }
 
 /** /v1 라우트·security·미들웨어(CORS→CSRF→라우트)를 등록한 OpenAPIHono 반환.
@@ -116,6 +119,8 @@ export function buildV1App(deps: V1Deps): OpenAPIHono {
   });
   // 서버측 동의 기록(PB-1) — 항상 등록. parse의 llm_disclosure fail-closed 기록을 위해 서비스도 항상 배선.
   registerConsentRoutes(v1, { service: deps.consentService, resolver: deps.resolver });
+  // 통화 참조 데이터(minor_unit SSOT) — 항상 등록(정적, 인증만, trip 비종속). openapi.json에 항상 포함.
+  registerCurrencyRoutes(v1, { service: deps.currenciesService, resolver: deps.resolver });
   // 사용내역 파싱 — parser 미주입이어도 등록(503로 명시적 off 신호, 스펙-런타임 일치).
   registerUsageImportRoutes(v1, {
     resolver: deps.resolver,

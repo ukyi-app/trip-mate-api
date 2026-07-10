@@ -34,6 +34,7 @@ function v1For(userId: string) {
     idempotencyStore: null,
     expenseDrafts: {} as never,
     consentService: {} as never,
+    currenciesService: {} as never,
     webOrigins: [ORIGIN],
   });
 }
