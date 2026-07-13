@@ -9,13 +9,9 @@
     "    workflows:write는 불필요 — 아래 github-actions가 비활성이다.",
     "관리 대상: Dockerfile의 베이스/런타임 이미지와 package.json 의존(+ bun.lock이 있으면 함께 갱신)."
   ],
-  "extends": [
-    "config:recommended"
-  ],
+  "extends": ["config:recommended"],
   "timezone": "Asia/Seoul",
-  "schedule": [
-    "* 0-6 * * 1"
-  ],
+  "schedule": ["* 0-6 * * 1"],
   "pinDigests": true,
   "automerge": false,
   "rangeStrategy": "bump",
@@ -31,9 +27,7 @@
       "— 기본값이면 창을 1분 차이로 놓쳐 영영 실행되지 않는다. 최상위 schedule과 같은 창으로 맞춘다."
     ],
     "enabled": true,
-    "schedule": [
-      "* 0-6 * * 1"
-    ]
+    "schedule": ["* 0-6 * * 1"]
   },
   "github-actions": {
     "description": [
