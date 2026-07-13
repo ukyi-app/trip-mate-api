@@ -1,0 +1,50 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "앱 레포의 Renovate 설정 — homelab 정책과 동일(권장 프리셋 + digest 핀 + 자동머지 금지).",
+    "homelab의 자체 호스팅 Renovate가 조직 레포를 autodiscover로 훑되 requireConfig=required로 돌므로,",
+    "이 파일의 '존재' 자체가 opt-in이다 — 설정이 없는 레포(비-앱)는 disabled-no-config로 자동 스킵된다.",
+    "⚠️ writer App이 이 레포에 Contents+PullRequests+Issues write로 설치돼 있어야 한다. issues:write까지 필요한 이유는",
+    "    config:recommended가 :dependencyDashboard를 끌어오고 대시보드가 이슈를 쓰기 때문이다(homelab이 2026-07-08에 밟은 함정).",
+    "    workflows:write는 불필요 — 아래 github-actions가 비활성이다.",
+    "관리 대상: Dockerfile의 베이스/런타임 이미지와 package.json 의존(+ bun.lock이 있으면 함께 갱신)."
+  ],
+  "extends": [
+    "config:recommended"
+  ],
+  "timezone": "Asia/Seoul",
+  "schedule": [
+    "* 0-6 * * 1"
+  ],
+  "pinDigests": true,
+  "automerge": false,
+  "rangeStrategy": "bump",
+  "lockFileMaintenance": {
+    "description": [
+      "bun.lock의 in-range 갱신은 이 둘(rangeStrategy=bump + lockFileMaintenance)이 없으면 아예 흐르지 않는다 — 실측:",
+      "package.json이 `hono: ^4.6.0`이고 bun.lock이 4.6.0에 묶여 있어도(4.12.x가 범위 안에 있어도) 기본값(rangeStrategy=auto)에선",
+      "Renovate가 브랜치를 만들지 않는다. npm 매니저의 lockfile-only 갱신 경로를 bun 매니저는 구현하지 않기 때문이다.",
+      "→ 캐럿 범위로 핀된 의존(hono·pg·react·vite…)의 마이너/패치 보안 패치가 영구히 정체된다(이 이슈가 없애려던 바로 그 상태).",
+      "bump = 릴리스마다 package.json 범위를 올리고 bun.lock을 같이 재생성한다(Dockerfile의 --frozen-lockfile이 깨지지 않게 둘이 함께 움직인다).",
+      "lockFileMaintenance = 직접 의존은 그대로인데 전이 의존만 새 버전이 나온 경우를 주 1회 lock 재해석으로 흡수한다.",
+      "schedule을 명시하는 이유: 이 객체의 기본 schedule은 'before 4am on monday'인데 homelab의 Renovate cron은 월 04:00 KST에 딱 한 번 돈다",
+      "— 기본값이면 창을 1분 차이로 놓쳐 영영 실행되지 않는다. 최상위 schedule과 같은 창으로 맞춘다."
+    ],
+    "enabled": true,
+    "schedule": [
+      "* 0-6 * * 1"
+    ]
+  },
+  "github-actions": {
+    "description": [
+      "비활성 — 두 가지 이유가 각각 독립적으로 이 매니저를 막는다.",
+      "(1) 토큰: homelab의 Renovate는 writer App 토큰(Contents+PR+Issues write)으로 돈다. workflows:write가 없어",
+      "    .github/workflows/* 를 건드리는 push는 GitHub가 거부한다 — 활성화하면 PR이 깨진 채 반복된다(homelab도 같은 이유로 비활성).",
+      "(2) 정책: 이 레포의 유일한 액션 참조는 릴리스 워크플로의 `ukyi-app/homelab/.../reusable-app-build.yaml@main`이다.",
+      "    빌드 로직 SSOT를 main으로 따라가는 게 의도이므로 SHA로 핀하면(pinDigests가 액션에도 적용된다) 앱마다 스냅샷에 얼어붙고",
+      "    homelab main 커밋마다 전 앱 레포에 digest PR이 쏟아진다.",
+      "앱이 서드파티 액션을 쓰는 자체 워크플로를 추가한다면 그때 (1)을 먼저 풀고 함께 켤 것."
+    ],
+    "enabled": false
+  }
+}
