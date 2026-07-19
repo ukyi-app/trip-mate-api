@@ -1,6 +1,6 @@
 # homelab GHCR 이미지(linux/arm64, reusable-app-build.yaml). 공유 차트 PSA restricted 준수:
 # non-root(65532)·read-only rootfs·drop ALL caps(런타임은 차트가 강제, 이미지도 정합).
-FROM oven/bun:1-alpine
+FROM oven/bun:1-alpine@sha256:5acc90a93e91ff07bf72aa90a7c9f0fa189765aec90b47bdbf2152d2196383c0
 WORKDIR /app
 
 # 의존성 레이어 캐시: 매니페스트 먼저. --production = devDeps(drizzle-kit 등) 제외.
