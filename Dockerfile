@@ -10,10 +10,20 @@ RUN bun install --frozen-lockfile --production
 
 # 사용내역 파싱 codex 엔진(선택, USAGE_PARSER_ENGINE=codex) — musl 릴리스 바이너리 직설치.
 # 런타임엔 CODEX_HOME(auth.json secret + writable) 마운트 필요(차트/values, 설계 §엔진 선택).
+# ⚠️ TARGETARCH에 기본값을 주지 말 것 — stage-level ARG 기본값은 BuildKit predefined platform arg를
+#   이겨서, 잘못된 아키텍처 바이너리를 담은 이미지를 조용히 만든다. 비워두면 아래 case가 exit 1로 막는다.
+#   추출 디렉토리 이름도 triple에서 파생되므로 URL뿐 아니라 mv 경로에도 같은 변수를 쓴다.
+#   말미의 `codex --version`은 이 Dockerfile의 유일한 자기검증이다 — 제거하지 말 것.
+ARG TARGETARCH
 ARG CODEX_VERSION=0.142.3
-RUN wget -qO /tmp/codex.tar.gz "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-aarch64-unknown-linux-musl.tar.gz" \
+RUN case "$TARGETARCH" in \
+      arm64) CODEX_TRIPLE=aarch64-unknown-linux-musl ;; \
+      amd64) CODEX_TRIPLE=x86_64-unknown-linux-musl  ;; \
+      *) echo "지원하지 않는 TARGETARCH='$TARGETARCH' — arm64|amd64만 지원" >&2; exit 1 ;; \
+    esac \
+  && wget -qO /tmp/codex.tar.gz "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-${CODEX_TRIPLE}.tar.gz" \
   && tar -xzf /tmp/codex.tar.gz -C /tmp \
-  && mv /tmp/codex-aarch64-unknown-linux-musl /usr/local/bin/codex \
+  && mv "/tmp/codex-${CODEX_TRIPLE}" /usr/local/bin/codex \
   && chmod 755 /usr/local/bin/codex \
   && rm -f /tmp/codex.tar.gz \
   && codex --version
