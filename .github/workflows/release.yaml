@@ -5,6 +5,10 @@ name: release
 on:
   push:
     branches: [main]
+  # 소스 변경 없이 재빌드가 필요할 때(멀티아치 전환·베이스 이미지 재핀·NUC 이전 검증 등)
+  # empty commit 대신 쓰는 진입점. files/release.yaml이 이미 같은 형태다.
+  # 빌드 로직은 여전히 homelab reusable에 있고 여기선 트리거만 하나 는다.
+  workflow_dispatch:
 permissions:
   contents: read
   packages: write
