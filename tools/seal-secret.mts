@@ -11,7 +11,15 @@ function die(msg: string): never {
   process.exit(1);
 }
 
-type Args = { namespace: string; cert: string; dryRun: boolean; config?: string; env?: string; app?: string; out?: string };
+type Args = {
+  namespace: string;
+  cert: string;
+  dryRun: boolean;
+  config?: string;
+  env?: string;
+  app?: string;
+  out?: string;
+};
 function parseArgs(argv: string[]): Args {
   const args: Args = { namespace: "prod", cert: "tools/sealed-secrets-cert.pem", dryRun: false };
   for (let i = 0; i < argv.length; i++) {
@@ -38,7 +46,11 @@ function parseDotEnv(path: string) {
     if (eq <= 0) continue;
     let val = line.slice(eq + 1).trim();
     // .env 관례: 양끝 매칭 따옴표는 구분자라 벗긴다(미제거 시 봉인 값에 따옴표 혼입 + F2 거부 우회).
-    if (val.length >= 2 && ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'")))) val = val.slice(1, -1);
+    if (
+      val.length >= 2 &&
+      ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'")))
+    )
+      val = val.slice(1, -1);
     out.set(line.slice(0, eq).trim(), val);
   }
   return out;
@@ -103,7 +115,8 @@ const res = spawnSync("kubeseal", ["--cert", args.cert, "--format", "yaml"], {
   encoding: "utf8",
 });
 if (res.error) die(`kubeseal 실행 실패: ${res.error.message}`);
-if (res.status !== 0) die(`kubeseal 종료 코드 ${res.status} — cert/컨트롤러 점검 (stderr는 값 미포함 시에만 확인)`);
+if (res.status !== 0)
+  die(`kubeseal 종료 코드 ${res.status} — cert/컨트롤러 점검 (stderr는 값 미포함 시에만 확인)`);
 mkdirSync(dirname(args.out), { recursive: true });
 writeFileSync(args.out, res.stdout);
 console.log(`sealed: ${args.out} (keys: ${targets.map((t) => t.envKey).join(", ")})`);
