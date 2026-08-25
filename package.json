@@ -24,7 +24,7 @@
     "@anthropic-ai/sdk": "^0.110.0",
     "@hono/zod-openapi": "^1.4.0",
     "@t3-oss/env-core": "^0.13.11",
-    "better-auth": "^1.6.22",
+    "better-auth": "^1.7.1",
     "decimal.js": "^10.6.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.3",
