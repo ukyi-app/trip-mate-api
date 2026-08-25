@@ -30,6 +30,8 @@ export function createAuth(deps: AuthDeps) {
     // 세션: Valkey(secondaryStorage) — Postgres 세션 테이블 비대화 회피(설계 D2)
     secondaryStorage: {
       get: (k) => storage.get(k),
+      getAndDelete: (k) => storage.getAndDelete(k),
+      increment: (k, ttl) => storage.increment(k, ttl),
       set: (k, v, ttl) => storage.set(k, v, ttl),
       delete: (k) => storage.delete(k),
     },
