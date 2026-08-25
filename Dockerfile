@@ -5,8 +5,16 @@ WORKDIR /app
 
 # 의존성 레이어 캐시: 매니페스트 먼저. --production = devDeps(drizzle-kit 등) 제외.
 # 마이그레이션은 drizzle-orm 런타임 마이그레이터(dependencies)라 prod 이미지에서 동작.
+#
+# ⚠️ --ignore-scripts를 빼지 말 것. 이 prod 트리에서 설치 스크립트를 가진 패키지는 셋뿐이고
+#   (@prisma/client·better-sqlite3·esbuild) 전부 better-auth의 optional peer로 딸려온 것이라
+#   소스에서 참조가 0이다 — 스크립트를 건너뛰어도 설치되는 패키지 수는 그대로다(실측 134/134).
+#   반면 amd64 leg는 QEMU 에뮬레이션을 타는데, 거기서 bun 1.4.0은 postinstall을 실행하는 순간
+#   JSC 힙 블록을 못 얻어 RSS 24MB 시점에 MemoryExhaustion으로 abort한다
+#   (qemu: uncaught target signal 6). bun은 그 뒤 재시도에 들어가고, release는 6시간 타임아웃까지
+#   갔다(2026-08-24 실측). BUN_JSC_useJIT=0·forceRAMSize로는 못 막는다 — 둘 다 같은 자리에서 죽는다.
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+RUN bun install --frozen-lockfile --production --ignore-scripts
 
 # 사용내역 파싱 codex 엔진(선택, USAGE_PARSER_ENGINE=codex) — musl 릴리스 바이너리 직설치.
 # 런타임엔 CODEX_HOME(auth.json secret + writable) 마운트 필요(차트/values, 설계 §엔진 선택).
