@@ -38,7 +38,7 @@
     "@better-auth/cli": "^1.4.21",
     "@testcontainers/postgresql": "^12.1.0",
     "@testcontainers/redis": "^12.1.0",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.6.2",
     "drizzle-kit": "^0.31.10",
     "drizzle-zod": "^0.8.3",
     "fast-check": "^4.9.0",
