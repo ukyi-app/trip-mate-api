@@ -41,7 +41,7 @@
     "@types/node": "^26.2.0",
     "drizzle-kit": "^0.31.10",
     "drizzle-zod": "^0.8.3",
-    "fast-check": "^4.9.0",
+    "fast-check": "^4.10.2",
     "lefthook": "^2.1.10",
     "oxfmt": "^0.64.0",
     "oxlint": "^1.79.0",
